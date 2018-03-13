@@ -1,0 +1,15 @@
+[package]
+name = "rjvm"
+version = "0.1.0"
+authors = ["archerfeel <archerfeel@gmail.com>"]
+
+[dependencies]
+regex = "0.2"
+
+[lib]
+name = "rjvm"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rjvm"
+path = "src/rjvm.rs"
