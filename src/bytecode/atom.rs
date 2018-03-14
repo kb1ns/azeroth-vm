@@ -52,7 +52,10 @@ impl Traveler<U4> for U4 {
                     None => panic!("invalid classfile"),
                     Some(uu2) => match u3 {
                         None => panic!("invalid classfile"),
-                        Some(uu3) => ((uu0 as u32) << 24) + ((uu1 as u32) << 16) + ((uu2 as u32) << 8) + (uu3 as u32),
+                        Some(uu3) => {
+                            ((uu0 as u32) << 24) + ((uu1 as u32) << 16) + ((uu2 as u32) << 8)
+                                + (uu3 as u32)
+                        }
                     },
                 },
             },
@@ -89,7 +92,15 @@ impl Traveler<U8> for U8 {
                                     None => panic!("invalid classfile"),
                                     Some(uu6) => match u7 {
                                         None => panic!("invalid classfile"),
-                                        Some(uu7) => ((uu0 as u64) << 56) + ((uu1 as u64) << 48) + ((uu2 as u64) << 40) + ((uu3 as u64) << 32) + ((uu4 as u64) << 24) + ((uu5 as u64) << 16) + ((uu6 as u64) << 8) + (uu7 as u64),
+                                        Some(uu7) => {
+                                            ((uu0 as u64) << 56) + ((uu1 as u64) << 48)
+                                                + ((uu2 as u64) << 40)
+                                                + ((uu3 as u64) << 32)
+                                                + ((uu4 as u64) << 24)
+                                                + ((uu5 as u64) << 16)
+                                                + ((uu6 as u64) << 8)
+                                                + (uu7 as u64)
+                                        }
                                     },
                                 },
                             },
