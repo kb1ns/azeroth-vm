@@ -5,6 +5,7 @@ authors = ["archerfeel <archerfeel@gmail.com>"]
 
 [dependencies]
 regex = "0.2"
+zip = "0.3"
 
 [lib]
 name = "rjvm"

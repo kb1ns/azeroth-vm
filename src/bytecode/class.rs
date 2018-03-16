@@ -21,7 +21,3 @@ impl Class {
     }
 }
 
-#[test]
-fn class_test() {
-    let clz = class::Class::from_vec(vec![255, 0, 0, 1, 1, 2, 0, 255, 1, 1]);
-}
