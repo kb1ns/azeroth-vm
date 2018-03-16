@@ -5,8 +5,13 @@ pub struct Stack {
 }
 
 pub struct Frame {
-    locals: Vec<u8>,
-    operands: Vec<u8>,
+    locals: Vec<Slot>,
+    operands: Vec<Slot>,
+}
+
+pub enum Slot {
+    L1(u32),
+    L2(u64),
 }
 
 impl Stack {
@@ -19,4 +24,14 @@ impl Stack {
         }
     }
 
+    pub fn push(&mut self, max_locals: usize, max_op_stack_size: usize) {
+        self.jvm_method.push(Frame {
+            locals: Vec::<Slot>::with_capacity(max_locals),
+            operands: Vec::<Slot>::with_capacity(max_op_stack_size),
+        });
+    }
+
+    pub fn pop(&mut self) {
+        self.jvm_method.pop();
+    }
 }

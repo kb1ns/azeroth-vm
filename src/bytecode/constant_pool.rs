@@ -6,21 +6,21 @@ pub struct ConstantPool {
 }
 
 pub enum ConstantItem {
-    utf8(String),
-    integer(i32),
-    float(f32),
-    long(i64),
-    double(f64),
-    class(u16),
-    string(u16),
-    field_ref(u16, u16),
-    method_ref(u16, u16),
-    interface_method_ref(u16, u16),
-    name_and_type(u16, u16),
-    method_handle(u8),
-    method_type(u16),
-    invoke_dynamic(u8),
-    empty,
+    UTF8(String),
+    Integer(i32),
+    Float(f32),
+    Long(i64),
+    Double(f64),
+    Class(u16),
+    String(u16),
+    FieldRef(u16, u16),
+    MethodRef(u16, u16),
+    InterfaceMethodRef(u16, u16),
+    NameAndType(u16, u16),
+    MethodHandle(u8),
+    MethodType(u16),
+    InvokeDynamic(u8),
+    Empty,
 }
 
 impl Traveler<ConstantPool> for ConstantPool {
@@ -30,8 +30,8 @@ impl Traveler<ConstantPool> for ConstantPool {
     {
         let size = U2::read(seq);
         let mut v = Vec::<ConstantItem>::with_capacity(size as usize + 1);
-        v.push(ConstantItem::empty);
-        for i in 0..size {
+        v.push(ConstantItem::Empty);
+        for _i in 0..size {
             v.push(ConstantItem::read(seq));
         }
         ConstantPool { items: v }
@@ -64,14 +64,14 @@ impl Traveler<ConstantItem> for ConstantItem {
             //TODO
             UTF8_TAG => {
                 let length = U2::read(seq);
-                for x in 0..length {
+                for _x in 0..length {
                     seq.next();
                 }
-                ConstantItem::utf8("".to_string())
+                ConstantItem::UTF8("".to_string())
             }
             INTEGER_TAG => {
                 U4::read(seq);
-                ConstantItem::integer(0)
+                ConstantItem::Integer(0)
             }
             _ => panic!("invalid classfile"),
         }
