@@ -4,7 +4,6 @@ extern crate zip;
 use self::regex::Regex;
 use std::fs;
 use std::fs::File;
-use std::ffi::OsStr;
 use std::path::Path;
 use std::io::Read;
 use super::bytecode::class::*;
