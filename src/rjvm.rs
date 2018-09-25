@@ -1,7 +1,16 @@
 extern crate rjvm;
 
+use std::env;
+
 fn main() {
-    let mut cp = rjvm::classpath::Classpath::init();
-    cp.append_bootstrap_classpath("/Library/Java/JavaVirtualMachines/jdk1.8.0_151.jdk/Contents/Home/jre/lib/rt.jar".to_string());
-    cp.find_bootstrap_class("java.util.concurrent.TimeUnit".to_string());
+    match env::var("JAVA_HOME") {
+        Ok(home) => {
+            let mut cp = rjvm::classpath::Classpath::init();
+            cp.append_bootstrap_classpath(home + "jre/lib/rt.jar");
+            cp.find_bootstrap_class("java.util.concurrent.TimeUnit".to_string());
+        }
+        Err(_) => {
+            panic!("JAVA_HOME not set");
+        }
+    }
 }

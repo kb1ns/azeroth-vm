@@ -32,7 +32,6 @@ impl Traveler<ConstantPool> for ConstantPool {
         let mut offset = 1;
         while offset < size {
             let tag = U1::read(seq);
-            println!("#{} -- {}", offset, tag);
             offset = offset + 1;
             let ele = match tag {
                 INVOKEDYNAMIC_TAG => {

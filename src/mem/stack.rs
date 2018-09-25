@@ -25,6 +25,9 @@ impl Stack {
     }
 
     pub fn push(&mut self, max_locals: usize, max_op_stack_size: usize) {
+        if self.jvm_method.len() >= self.max_stack_size {
+            panic!("java.lang.StackOverflowError: {}", self.max_stack_size);
+        }
         self.jvm_method.push(Frame {
             locals: Vec::<Slot>::with_capacity(max_locals),
             operands: Vec::<Slot>::with_capacity(max_op_stack_size),

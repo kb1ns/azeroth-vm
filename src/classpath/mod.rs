@@ -25,21 +25,21 @@ impl ClassEntry {
                     let meta = f.metadata().unwrap();
                     let mut buf = Vec::<u8>::with_capacity(meta.len() as usize);
                     f.read_to_end(&mut buf);
+                    trace!("find class {} from {}", class_file, dir);
                     Some(Class::from_vec(buf))
                 } else {
                     None
                 }
             }
             &ClassEntry::Jar(ref jar) => {
-                println!("{}", jar);
                 let jar_file = File::open(&jar).unwrap();
                 let mut archive = zip::ZipArchive::new(&jar_file).unwrap();
                 for i in 0..archive.len() {
                     let mut file = archive.by_index(i).unwrap();
                     if file.name() == class_file {
-                        println!("Filename: {}", file.name());
                         let mut buf = Vec::<u8>::with_capacity(file.size() as usize);
                         file.read_to_end(&mut buf);
+                        trace!("find class {} from {}", class_file, jar);
                         return Some(Class::from_vec(buf));
                     }
                 }
