@@ -79,19 +79,21 @@ impl Classpath {
     pub fn find_resource(&self, resource_name: String) -> Option<File> {
         for entry in &self.app {
             match entry {
-                &ClassEntry::Dir(ref dir) => match fs::read_dir(dir) {
-                    Err(_) => panic!("bootstrap classpath read error."),
-                    Ok(paths) => {
-                        let f = paths
-                            .map(|f| f.unwrap().path())
-                            .filter(|f| f.ends_with(&resource_name))
-                            .map(|f| File::open(f).unwrap())
-                            .find(|_| true);
-                        if let Some(res) = f {
-                            return Some(res);
+                &ClassEntry::Dir(ref dir) => {
+                    match fs::read_dir(dir) {
+                        Err(_) => panic!("bootstrap classpath read error."),
+                        Ok(paths) => {
+                            let f = paths
+                                .map(|f| f.unwrap().path())
+                                .filter(|f| f.ends_with(&resource_name))
+                                .map(|f| File::open(f).unwrap())
+                                .find(|_| true);
+                            if let Some(res) = f {
+                                return Some(res);
+                            }
                         }
                     }
-                },
+                }
                 &ClassEntry::Jar(_) => {}
             }
         }

@@ -82,31 +82,23 @@ impl Traveler<ConstantPool> for ConstantPool {
                 }
                 INTEGER_TAG => {
                     let v = U4::read(seq);
-                    let i: i32 = unsafe {
-                        mem::transmute::<u32, i32>(v)
-                    };
+                    let i: i32 = unsafe { mem::transmute::<u32, i32>(v) };
                     ConstantItem::Integer(i)
                 }
                 FLOAT_TAG => {
                     let v = U4::read(seq);
-                    let i: f32 = unsafe {
-                        mem::transmute::<u32, f32>(v)
-                    };
+                    let i: f32 = unsafe { mem::transmute::<u32, f32>(v) };
                     ConstantItem::Float(i)
                 }
                 LONG_TAG => {
                     let v = U8::read(seq);
-                    let i: i64 = unsafe {
-                        mem::transmute::<u64, i64>(v)
-                    };
+                    let i: i64 = unsafe { mem::transmute::<u64, i64>(v) };
                     offset = offset + 1;
                     ConstantItem::Long(i)
                 }
                 DOUBLE_TAG => {
                     let v = U8::read(seq);
-                    let i: f64 = unsafe {
-                        mem::transmute::<u64, f64>(v)
-                    };
+                    let i: f64 = unsafe { mem::transmute::<u64, f64>(v) };
                     offset = offset + 1;
                     ConstantItem::Double(i)
                 }
