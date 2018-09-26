@@ -37,4 +37,10 @@ impl Class {
             attributes: Attributes::read(seq),
         }
     }
+
+    pub fn debug_constants(&self) {
+        for item in &self.constant_pool {
+            println!("{:?}", item);
+        }
+    }
 }

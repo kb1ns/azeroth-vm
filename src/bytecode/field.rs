@@ -3,7 +3,9 @@ use bytecode::atom::*;
 
 pub type Fields = Vec<Field>;
 
-pub struct Field {}
+pub struct Field {
+    
+}
 
 impl Traveler<Fields> for Fields {
     fn read<I>(seq: &mut I) -> Fields

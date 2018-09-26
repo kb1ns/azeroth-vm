@@ -1,4 +1,5 @@
 use super::Traveler;
+use std::str;
 use std::mem;
 use bytecode::atom::*;
 
@@ -20,7 +21,114 @@ pub enum ConstantItem {
     MethodHandle(u8, u16),
     MethodType(u16),
     InvokeDynamic(u16, u16),
+    NIL,
 }
+
+pub fn get_integer(pool: &ConstantPool, idx: usize) -> i32 {
+    if let Some(item) = pool.get(idx) {
+        match item {
+            &ConstantItem::Integer(i) => {
+                return i;
+            }
+            _ => {
+                panic!("invalid class file");
+            }
+        }
+    }
+    panic!("invalid class file");
+}
+
+pub fn get_float(pool: &ConstantPool, idx: usize) -> f32 {
+    if let Some(item) = pool.get(idx) {
+        match item {
+            &ConstantItem::Float(f) => {
+                return f;
+            }
+            _ => {
+                panic!("invalid class file");
+            }
+        }
+    }
+    panic!("invalid class file");
+}
+
+pub fn get_long(pool: &ConstantPool, idx: usize) -> i64 {
+    if let Some(item) = pool.get(idx) {
+        match item {
+            &ConstantItem::Long(l) => {
+                return l;
+            }
+            _ => {
+                panic!("invalid class file");
+            }
+        }
+    }
+    panic!("invalid class file");
+}
+
+pub fn get_double(pool: &ConstantPool, idx: usize) -> f64 {
+    if let Some(item) = pool.get(idx) {
+        match item {
+            &ConstantItem::Double(d) => {
+                return d;
+            }
+            _ => {
+                panic!("invalid class file");
+            }
+        }
+    }
+    panic!("invalid class file");
+}
+
+pub fn get_name_and_type(pool: &ConstantPool, idx: usize) -> (String, String) {
+    if let Some(item) = pool.get(idx) {
+        match item {
+            &ConstantItem::NameAndType(n_idx, t_idx) => {
+                return (get_str(pool, n_idx as usize), get_str(pool, t_idx as usize));
+            }
+            _ => {
+                panic!("invalid class file");
+            }
+        }
+    }
+    panic!("invalid class file");
+}
+
+pub fn get_javaref(pool: &ConstantPool, idx: usize) -> (String, (String, String)) {
+    if let Some(item) = pool.get(idx) {
+        match item {
+            &ConstantItem::InterfaceMethodRef(c_idx, nt_idx) => {
+                return (get_str(pool, c_idx as usize), get_name_and_type(pool, nt_idx as usize));
+            }
+            _ => {
+                panic!("invalid class file");
+            }
+        }
+    }
+    panic!("invalid class file");
+}
+
+pub fn get_str(pool: &ConstantPool, idx: usize) -> String {
+    if let Some(item) = pool.get(idx) {
+        match item {
+            &ConstantItem::String(offset) => {
+                return get_str(pool, offset as usize);
+            }
+            &ConstantItem::UTF8(ref s) => {
+                // TODO share, not copy
+                return s.to_string();
+            }
+            &ConstantItem::Class(offset) => {
+                return get_str(pool, offset as usize);
+            }
+            _ => {
+                panic!("invalid class file");
+            }
+        }
+    }
+    panic!("invalid class file");
+}
+
 
 impl Traveler<ConstantPool> for ConstantPool {
     fn read<I>(seq: &mut I) -> ConstantPool
@@ -28,7 +136,8 @@ impl Traveler<ConstantPool> for ConstantPool {
         I: Iterator<Item = u8>,
     {
         let size = U2::read(seq);
-        let mut v = Vec::<ConstantItem>::with_capacity(size as usize - 1);
+        let mut pool = Vec::<ConstantItem>::with_capacity(size as usize);
+        pool.push(ConstantItem::NIL);
         let mut offset = 1;
         while offset < size {
             let tag = U1::read(seq);
@@ -71,14 +180,15 @@ impl Traveler<ConstantPool> for ConstantPool {
                     let name_and_type_idx = U2::read(seq);
                     ConstantItem::FieldRef(class_idx, name_and_type_idx)
                 }
-                //TODO
                 UTF8_TAG => {
                     let length = U2::read(seq);
                     let mut buf = Vec::<u8>::with_capacity(length as usize);
                     for _x in 0..length {
                         buf.push(U1::read(seq));
                     }
-                    ConstantItem::UTF8("".to_string())
+                    // TODO MUTF-8 encode
+                    let s = str::from_utf8(&buf).unwrap();
+                    ConstantItem::UTF8(s.to_string())
                 }
                 INTEGER_TAG => {
                     let v = U4::read(seq);
@@ -94,12 +204,14 @@ impl Traveler<ConstantPool> for ConstantPool {
                     let v = U8::read(seq);
                     let i: i64 = unsafe { mem::transmute::<u64, i64>(v) };
                     offset = offset + 1;
+                    pool.push(ConstantItem::NIL);
                     ConstantItem::Long(i)
                 }
                 DOUBLE_TAG => {
                     let v = U8::read(seq);
                     let i: f64 = unsafe { mem::transmute::<u64, f64>(v) };
                     offset = offset + 1;
+                    pool.push(ConstantItem::NIL);
                     ConstantItem::Double(i)
                 }
                 NAMEANDTYPE_TAG => {
@@ -109,9 +221,9 @@ impl Traveler<ConstantPool> for ConstantPool {
                 }
                 _ => panic!("invalid classfile"),
             };
-            v.push(ele);
+            pool.push(ele);
         }
-        v
+        pool
     }
 }
 
@@ -130,12 +242,3 @@ const METHODHANDLE_TAG: u8 = 15;
 const METHODTYPE_TAG: u8 = 16;
 const INVOKEDYNAMIC_TAG: u8 = 18;
 
-
-// impl Traveler<ConstantItem> for ConstantItem {
-//     fn read<I>(seq: &mut I) -> ConstantItem
-//     where
-//         I: Iterator<Item = u8>,
-//     {
-//         let tag = U1::read(seq);
-//     }
-// }
