@@ -17,45 +17,52 @@ unsafe fn run(stack: &mut JavaStack) {
         }
         // iconst -1 ~ 5
         0x02 => {
-            stack.top().operands.push(
-                std::mem::transmute::<i32, Slot>(-1),
-            );
+            stack
+                .top()
+                .operands
+                .push(std::mem::transmute::<i32, Slot>(-1));
             stack.java_pc = stack.java_pc + 1;
         }
         0x03 => {
-            stack.top().operands.push(
-                std::mem::transmute::<i32, Slot>(0),
-            );
+            stack
+                .top()
+                .operands
+                .push(std::mem::transmute::<i32, Slot>(0));
             stack.java_pc = stack.java_pc + 1;
         }
         0x04 => {
-            stack.top().operands.push(
-                std::mem::transmute::<i32, Slot>(1),
-            );
+            stack
+                .top()
+                .operands
+                .push(std::mem::transmute::<i32, Slot>(1));
             stack.java_pc = stack.java_pc + 1;
         }
         0x05 => {
-            stack.top().operands.push(
-                std::mem::transmute::<i32, Slot>(2),
-            );
+            stack
+                .top()
+                .operands
+                .push(std::mem::transmute::<i32, Slot>(2));
             stack.java_pc = stack.java_pc + 1;
         }
         0x06 => {
-            stack.top().operands.push(
-                std::mem::transmute::<i32, Slot>(3),
-            );
+            stack
+                .top()
+                .operands
+                .push(std::mem::transmute::<i32, Slot>(3));
             stack.java_pc = stack.java_pc + 1;
         }
         0x07 => {
-            stack.top().operands.push(
-                std::mem::transmute::<i32, Slot>(4),
-            );
+            stack
+                .top()
+                .operands
+                .push(std::mem::transmute::<i32, Slot>(4));
             stack.java_pc = stack.java_pc + 1;
         }
         0x08 => {
-            stack.top().operands.push(
-                std::mem::transmute::<i32, Slot>(5),
-            );
+            stack
+                .top()
+                .operands
+                .push(std::mem::transmute::<i32, Slot>(5));
             stack.java_pc = stack.java_pc + 1;
         }
         // lconst 0 ~ 1
@@ -76,21 +83,24 @@ unsafe fn run(stack: &mut JavaStack) {
         }
         // fconst 0 ~ 2
         0x0b => {
-            stack.top().operands.push(
-                std::mem::transmute::<f32, Slot>(0.0),
-            );
+            stack
+                .top()
+                .operands
+                .push(std::mem::transmute::<f32, Slot>(0.0));
             stack.java_pc = stack.java_pc + 1;
         }
         0x0c => {
-            stack.top().operands.push(
-                std::mem::transmute::<f32, Slot>(1.0),
-            );
+            stack
+                .top()
+                .operands
+                .push(std::mem::transmute::<f32, Slot>(1.0));
             stack.java_pc = stack.java_pc + 1;
         }
         0x0d => {
-            stack.top().operands.push(
-                std::mem::transmute::<f32, Slot>(2.0),
-            );
+            stack
+                .top()
+                .operands
+                .push(std::mem::transmute::<f32, Slot>(2.0));
             stack.java_pc = stack.java_pc + 1;
         }
         // dconst 0 ~ 1
@@ -110,7 +120,6 @@ unsafe fn run(stack: &mut JavaStack) {
         }
         // bipush
         0x10 => {
-
             stack.java_pc = stack.java_pc + 2;
         }
         0x11 => {}

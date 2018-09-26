@@ -12,20 +12,20 @@ pub enum ConstantItem {
     Float(f32),
     Long(i64),
     Double(f64),
-    Class(u16),
-    String(u16),
-    FieldRef(u16, u16),
-    MethodRef(u16, u16),
-    InterfaceMethodRef(u16, u16),
-    NameAndType(u16, u16),
-    MethodHandle(u8, u16),
-    MethodType(u16),
-    InvokeDynamic(u16, u16),
+    Class(U2),
+    String(U2),
+    FieldRef(U2, U2),
+    MethodRef(U2, U2),
+    InterfaceMethodRef(U2, U2),
+    NameAndType(U2, U2),
+    MethodHandle(U1, U2),
+    MethodType(U2),
+    InvokeDynamic(U2, U2),
     NIL,
 }
 
-pub fn get_integer(pool: &ConstantPool, idx: usize) -> i32 {
-    if let Some(item) = pool.get(idx) {
+pub fn get_integer(pool: &ConstantPool, idx: U2) -> i32 {
+    if let Some(item) = pool.get(idx as usize) {
         match item {
             &ConstantItem::Integer(i) => {
                 return i;
@@ -38,8 +38,8 @@ pub fn get_integer(pool: &ConstantPool, idx: usize) -> i32 {
     panic!("invalid class file");
 }
 
-pub fn get_float(pool: &ConstantPool, idx: usize) -> f32 {
-    if let Some(item) = pool.get(idx) {
+pub fn get_float(pool: &ConstantPool, idx: U2) -> f32 {
+    if let Some(item) = pool.get(idx as usize) {
         match item {
             &ConstantItem::Float(f) => {
                 return f;
@@ -52,8 +52,8 @@ pub fn get_float(pool: &ConstantPool, idx: usize) -> f32 {
     panic!("invalid class file");
 }
 
-pub fn get_long(pool: &ConstantPool, idx: usize) -> i64 {
-    if let Some(item) = pool.get(idx) {
+pub fn get_long(pool: &ConstantPool, idx: U2) -> i64 {
+    if let Some(item) = pool.get(idx as usize) {
         match item {
             &ConstantItem::Long(l) => {
                 return l;
@@ -66,8 +66,8 @@ pub fn get_long(pool: &ConstantPool, idx: usize) -> i64 {
     panic!("invalid class file");
 }
 
-pub fn get_double(pool: &ConstantPool, idx: usize) -> f64 {
-    if let Some(item) = pool.get(idx) {
+pub fn get_double(pool: &ConstantPool, idx: U2) -> f64 {
+    if let Some(item) = pool.get(idx as usize) {
         match item {
             &ConstantItem::Double(d) => {
                 return d;
@@ -80,11 +80,11 @@ pub fn get_double(pool: &ConstantPool, idx: usize) -> f64 {
     panic!("invalid class file");
 }
 
-pub fn get_name_and_type(pool: &ConstantPool, idx: usize) -> (String, String) {
-    if let Some(item) = pool.get(idx) {
+pub fn get_name_and_type(pool: &ConstantPool, idx: U2) -> (&str, &str) {
+    if let Some(item) = pool.get(idx as usize) {
         match item {
             &ConstantItem::NameAndType(n_idx, t_idx) => {
-                return (get_str(pool, n_idx as usize), get_str(pool, t_idx as usize));
+                return (&get_str(pool, n_idx), &get_str(pool, t_idx));
             }
             _ => {
                 panic!("invalid class file");
@@ -94,11 +94,11 @@ pub fn get_name_and_type(pool: &ConstantPool, idx: usize) -> (String, String) {
     panic!("invalid class file");
 }
 
-pub fn get_javaref(pool: &ConstantPool, idx: usize) -> (String, (String, String)) {
-    if let Some(item) = pool.get(idx) {
+pub fn get_javaref(pool: &ConstantPool, idx: U2) -> (&str, (&str, &str)) {
+    if let Some(item) = pool.get(idx as usize) {
         match item {
             &ConstantItem::InterfaceMethodRef(c_idx, nt_idx) => {
-                return (get_str(pool, c_idx as usize), get_name_and_type(pool, nt_idx as usize));
+                return (&get_str(pool, c_idx), get_name_and_type(pool, nt_idx));
             }
             _ => {
                 panic!("invalid class file");
@@ -108,18 +108,17 @@ pub fn get_javaref(pool: &ConstantPool, idx: usize) -> (String, (String, String)
     panic!("invalid class file");
 }
 
-pub fn get_str(pool: &ConstantPool, idx: usize) -> String {
-    if let Some(item) = pool.get(idx) {
+pub fn get_str(pool: &ConstantPool, idx: U2) -> &str {
+    if let Some(item) = pool.get(idx as usize) {
         match item {
             &ConstantItem::String(offset) => {
-                return get_str(pool, offset as usize);
+                return get_str(pool, offset);
             }
             &ConstantItem::UTF8(ref s) => {
-                // TODO share, not copy
-                return s.to_string();
+                return s;
             }
             &ConstantItem::Class(offset) => {
-                return get_str(pool, offset as usize);
+                return get_str(pool, offset);
             }
             _ => {
                 panic!("invalid class file");
@@ -128,7 +127,6 @@ pub fn get_str(pool: &ConstantPool, idx: usize) -> String {
     }
     panic!("invalid class file");
 }
-
 
 impl Traveler<ConstantPool> for ConstantPool {
     fn read<I>(seq: &mut I) -> ConstantPool
@@ -241,4 +239,3 @@ const NAMEANDTYPE_TAG: u8 = 12;
 const METHODHANDLE_TAG: u8 = 15;
 const METHODTYPE_TAG: u8 = 16;
 const INVOKEDYNAMIC_TAG: u8 = 18;
-
