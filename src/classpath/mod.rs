@@ -115,6 +115,41 @@ impl Classpath {
         None
     }
 
+    pub fn get_classpath(&self) -> String {
+        let mut cp = String::new();
+        for e in &self.bootstrap {
+            match e {
+                ClassEntry::Jar(ref s) => {
+                    cp = cp + s;
+                }
+                ClassEntry::Dir(ref s) => {
+                    cp = cp + s;
+                }
+            }
+        }
+        for e in &self.ext {
+            match e {
+                ClassEntry::Jar(ref s) => {
+                    cp = cp + s;
+                }
+                ClassEntry::Dir(ref s) => {
+                    cp = cp + s;
+                }
+            }
+        }
+        for e in &self.app {
+            match e {
+                ClassEntry::Jar(ref s) => {
+                    cp = cp + s;
+                }
+                ClassEntry::Dir(ref s) => {
+                    cp = cp + s;
+                }
+            }
+        }
+        cp
+    }
+
     pub fn append_bootstrap_classpath(&mut self, path: String) {
         Classpath::append_classpath(&mut self.bootstrap, path);
     }

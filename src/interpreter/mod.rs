@@ -1,6 +1,6 @@
 use std;
-use super::mem::stack::*;
-use super::mem::NULL;
+use super::mem::*;
+use super::mem::stack::JavaStack;
 
 unsafe fn run(stack: &mut JavaStack) {
     // TODO retrieve bytecode

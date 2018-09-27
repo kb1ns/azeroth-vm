@@ -1,21 +1,11 @@
 use std::mem;
+use super::*;
 
 pub struct JavaStack {
     pub java_method: Vec<Frame>,
     pub java_pc: usize,
     pub max_stack_size: usize,
     stack_size: usize,
-}
-
-pub type Slot = [u8; 4];
-pub type Slot2 = [u8; 8];
-
-pub fn split_slot2(w: Slot2) -> (Slot, Slot) {
-    let mut higher = [0u8; 4];
-    higher.copy_from_slice(&w[0..4]);
-    let mut lower = [0u8; 4];
-    lower.copy_from_slice(&w[4..]);
-    (higher, lower)
 }
 
 pub struct Frame {
