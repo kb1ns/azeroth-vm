@@ -43,4 +43,8 @@ impl Class {
             println!("{:?}", item);
         }
     }
+
+    pub fn get_class_name(&self) -> &str {
+        constant_pool::get_str(&self.constant_pool, self.this_class)
+    }
 }

@@ -6,7 +6,6 @@ use std::fs;
 use std::fs::File;
 use std::path::Path;
 use std::io::Read;
-use super::bytecode::class::*;
 
 enum ClassEntry {
     Jar(String),
@@ -14,7 +13,7 @@ enum ClassEntry {
 }
 
 impl ClassEntry {
-    fn find_class(&self, class_file: &str) -> Option<Class> {
+    fn find_class(&self, class_file: &str) -> Option<Vec<u8>> {
         match self {
             &ClassEntry::Dir(ref dir) => {
                 let mut abs_path = dir.clone();
@@ -26,7 +25,7 @@ impl ClassEntry {
                     let mut buf = Vec::<u8>::with_capacity(meta.len() as usize);
                     f.read_to_end(&mut buf);
                     trace!("find class {} from {}", class_file, dir);
-                    Some(Class::from_vec(buf))
+                    Some(buf)
                 } else {
                     None
                 }
@@ -40,7 +39,7 @@ impl ClassEntry {
                         let mut buf = Vec::<u8>::with_capacity(file.size() as usize);
                         file.read_to_end(&mut buf);
                         trace!("find class {} from {}", class_file, jar);
-                        return Some(Class::from_vec(buf));
+                        return Some(buf);
                     }
                 }
                 None
@@ -64,19 +63,19 @@ impl Classpath {
         }
     }
 
-    pub fn find_bootstrap_class(&self, class_name: String) -> Option<Class> {
+    pub fn find_bootstrap_class(&self, class_name: &str) -> Option<Vec<u8>> {
         Classpath::find_class(&self.bootstrap, class_name)
     }
 
-    pub fn find_ext_class(&self, class_name: String) -> Option<Class> {
+    pub fn find_ext_class(&self, class_name: &str) -> Option<Vec<u8>> {
         Classpath::find_class(&self.ext, class_name)
     }
 
-    pub fn find_app_class(&self, class_name: String) -> Option<Class> {
+    pub fn find_app_class(&self, class_name: &str) -> Option<Vec<u8>> {
         Classpath::find_class(&self.app, class_name)
     }
 
-    pub fn find_resource(&self, resource_name: String) -> Option<File> {
+    pub fn find_resource(&self, resource_name: &str) -> Option<File> {
         for entry in &self.app {
             match entry {
                 &ClassEntry::Dir(ref dir) => match fs::read_dir(dir) {
@@ -84,7 +83,7 @@ impl Classpath {
                     Ok(paths) => {
                         let f = paths
                             .map(|f| f.unwrap().path())
-                            .filter(|f| f.ends_with(&resource_name))
+                            .filter(|f| f.ends_with(resource_name))
                             .map(|f| File::open(f).unwrap())
                             .find(|_| true);
                         if let Some(res) = f {
@@ -98,10 +97,10 @@ impl Classpath {
         None
     }
 
-    fn find_class(entries: &Vec<ClassEntry>, class_name: String) -> Option<Class> {
+    fn find_class(entries: &Vec<ClassEntry>, class_name: &str) -> Option<Vec<u8>> {
         let mut class_file = Regex::new(r"\.")
             .unwrap()
-            .replace_all(&class_name, "/")
+            .replace_all(class_name, "/")
             .into_owned();
         class_file.push_str(".class");
         for entry in entries {

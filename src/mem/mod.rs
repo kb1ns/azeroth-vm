@@ -1,4 +1,5 @@
 use super::classpath::Classpath;
+use super::bytecode::class::Class;
 
 pub mod heap;
 pub mod stack;
