@@ -42,8 +42,15 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
     let mut arena = mem::metaspace::ClassArena::init(user_paths, system_paths);
     let main_class = Regex::new(r"\.").unwrap().replace_all(class_name, "/");
     if let Some(klass) = arena.find_class(main_class.as_ref()) {
-        // TODO allocate the main-thread stack to run class
-        let main_stack = mem::stack::JavaStack::allocate(128 * 1024);
+        // TODO check class has main method
+        // TODO default stack size
+        let mut main_stack = mem::stack::JavaStack::allocate(128 * 1024);
+        // init first frame
+        main_stack.push(&klass.bytecode, "main".to_string(), "([Ljava/lang/String;)V".to_string());
+        unsafe {
+            // TODO single directive
+            interpreter::run(&mut main_stack);
+        }
     } else {
         panic!("java.lang.ClassNotFoundException");
     }
