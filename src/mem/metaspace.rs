@@ -1,14 +1,14 @@
 use std::collections::BTreeMap;
 
 pub struct ClassArena {
-    cp: super::Classpath,
+    pub cp: super::Classpath,
     // TODO
-    classes: BTreeMap<String, Klass>,
+    pub classes: BTreeMap<String, Klass>,
 }
 
 pub struct Klass {
-    bytecode: super::Class,
-    classloader: Classloader,
+    pub bytecode: super::Class,
+    pub classloader: Classloader,
 }
 
 pub enum Classloader {
@@ -19,7 +19,6 @@ pub enum Classloader {
 }
 
 impl ClassArena {
-
     pub fn init(app_paths: Vec<String>, bootstrap_paths: Vec<String>) -> ClassArena {
         let mut cp = super::Classpath::init();
         for path in bootstrap_paths {

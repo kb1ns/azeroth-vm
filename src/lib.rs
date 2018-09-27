@@ -5,3 +5,4 @@ pub mod interpreter;
 
 #[macro_use]
 extern crate log;
+extern crate regex;

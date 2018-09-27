@@ -1,7 +1,6 @@
-extern crate regex;
 extern crate zip;
 
-use self::regex::Regex;
+use super::regex::Regex;
 use std::fs;
 use std::fs::File;
 use std::path::Path;
@@ -13,6 +12,7 @@ enum ClassEntry {
 }
 
 impl ClassEntry {
+    // class_file format: java/lang/String.class
     fn find_class(&self, class_file: &str) -> Option<Vec<u8>> {
         match self {
             &ClassEntry::Dir(ref dir) => {
@@ -118,31 +118,31 @@ impl Classpath {
         let mut cp = String::new();
         for e in &self.bootstrap {
             match e {
-                ClassEntry::Jar(ref s) => {
-                    cp = cp + s;
+                &ClassEntry::Jar(ref s) => {
+                    cp = cp + ":" + s;
                 }
-                ClassEntry::Dir(ref s) => {
-                    cp = cp + s;
+                &ClassEntry::Dir(ref s) => {
+                    cp = cp + ":" + s;
                 }
             }
         }
         for e in &self.ext {
             match e {
-                ClassEntry::Jar(ref s) => {
-                    cp = cp + s;
+                &ClassEntry::Jar(ref s) => {
+                    cp = cp + ":" + s;
                 }
-                ClassEntry::Dir(ref s) => {
-                    cp = cp + s;
+                &ClassEntry::Dir(ref s) => {
+                    cp = cp + ":" + s;
                 }
             }
         }
         for e in &self.app {
             match e {
-                ClassEntry::Jar(ref s) => {
-                    cp = cp + s;
+                &ClassEntry::Jar(ref s) => {
+                    cp = cp + ":" + s;
                 }
-                ClassEntry::Dir(ref s) => {
-                    cp = cp + s;
+                &ClassEntry::Dir(ref s) => {
+                    cp = cp + ":" + s;
                 }
             }
         }

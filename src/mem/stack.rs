@@ -27,10 +27,10 @@ impl Frame {
 }
 
 impl JavaStack {
-    pub fn allocate(max_stack_size: usize, pc: usize) -> JavaStack {
+    pub fn allocate(max_stack_size: usize) -> JavaStack {
         JavaStack {
             java_method: Vec::<Frame>::new(),
-            java_pc: pc,
+            java_pc: 0,
             max_stack_size: max_stack_size,
             stack_size: 0,
         }
