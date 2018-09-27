@@ -25,7 +25,7 @@ fn start_vm(class_name: &str, app_classpth: &str, java_home: &str) {
             .collect::<Vec<String>>();
         let mut arena = azerothvm::mem::metaspace::ClassArena::init(app_paths, bootstrap_paths);
         if let Some(klass) = arena.find_class(class_name) {
-            // TODO
+            // TODO allocate the main-thread stack to run class
             return;
         }
     } else {
