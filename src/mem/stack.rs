@@ -11,13 +11,15 @@ pub struct JavaStack {
 pub struct Frame {
     pub locals: Vec<Slot>,
     pub operands: Vec<Slot>,
+    method_ref: *const [u8],
 }
 
 impl Frame {
-    pub fn new(max_locals: usize, max_op_stack_size: usize) -> Frame {
+    pub fn new(max_locals: usize, max_op_stack_size: usize, method_ref: &[u8]) -> Frame {
         Frame {
             locals: Vec::<Slot>::with_capacity(max_locals),
             operands: Vec::<Slot>::with_capacity(max_op_stack_size),
+            method_ref: method_ref as *const [u8],
         }
     }
 
@@ -41,7 +43,7 @@ impl JavaStack {
     }
 
     pub fn push(&mut self, max_locals: usize, max_op_stack_size: usize) {
-        let f = Frame::new(max_locals, max_op_stack_size);
+        let f = Frame::new(max_locals, max_op_stack_size, &vec![0x0]);
         if self.get_stack_size() + f.get_frame_size() >= self.max_stack_size {
             panic!("java.lang.StackOverflowError: {}", self.max_stack_size);
         }

@@ -1,4 +1,6 @@
 use super::Traveler;
+use super::constant_pool;
+use super::constant_pool::ConstantPool;
 use bytecode::atom::*;
 use bytecode::attribute::*;
 
@@ -6,41 +8,41 @@ pub type Fields = Vec<Field>;
 
 pub struct Field {
     pub access_flag: U2,
-    pub name_index: U2,
-    pub descriptor_index: U2,
+    pub name: String,
+    pub descriptor: String,
     pub attributes: Vec<Attribute>,
 }
 
 impl Traveler<Fields> for Fields {
-    fn read<I>(seq: &mut I) -> Fields
+    fn read<I>(seq: &mut I, constants: Option<&ConstantPool>) -> Fields
     where
         I: Iterator<Item = u8>,
     {
-        let size = U2::read(seq);
+        let size = U2::read(seq, None);
         let mut fields = Vec::<Field>::with_capacity(size as usize);
         for _x in 0..size {
-            fields.push(Field::read(seq));
+            fields.push(Field::read(seq, constants));
         }
         fields
     }
 }
 
 impl Traveler<Field> for Field {
-    fn read<I>(seq: &mut I) -> Field
+    fn read<I>(seq: &mut I, constants: Option<&ConstantPool>) -> Field
     where
         I: Iterator<Item = u8>,
     {
-        Field {
-            access_flag: U2::read(seq),
-            name_index: U2::read(seq),
-            descriptor_index: U2::read(seq),
-            attributes: Attributes::read(seq),
+        let access_flag = U2::read(seq, None);
+        let name_idx = U2::read(seq, None);
+        let descriptor_idx = U2::read(seq, None);
+        if let Some(pool) = constants {
+            return Field {
+                access_flag: access_flag,
+                name: constant_pool::get_str(pool, name_idx).to_string(),
+                descriptor: constant_pool::get_str(pool, descriptor_idx).to_string(),
+                attributes: Attributes::read(seq, Some(pool)),
+            };
         }
-    }
-}
-
-impl Field {
-    pub fn is_public(&self) -> bool {
-        false
+        panic!("need constant pool to resolve fields")
     }
 }

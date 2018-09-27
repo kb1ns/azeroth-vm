@@ -39,14 +39,13 @@ impl ClassArena {
             bytecode: class,
             classloader: classloader,
         };
-        let klass_name = klass.bytecode.get_class_name().to_string();
+        let klass_name = klass.bytecode.this_class_name.clone();
         self.classes.insert(klass_name.clone(), klass);
         if let Some(k) = self.classes.get(&klass_name) {
             return k;
         }
         panic!("java.lang.NoClassDefFoundError");
     }
-
     // TODO make this function thread-safe
     pub fn find_class(&mut self, class_name: &str) -> Option<&Klass> {
         if self.classes.contains_key(class_name) {

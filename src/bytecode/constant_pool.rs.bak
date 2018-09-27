@@ -133,88 +133,88 @@ impl Traveler<ConstantPool> for ConstantPool {
     where
         I: Iterator<Item = u8>,
     {
-        let size = U2::read(seq, None);
+        let size = U2::read(seq);
         let mut pool = Vec::<ConstantItem>::with_capacity(size as usize);
         pool.push(ConstantItem::NIL);
         let mut offset = 1;
         while offset < size {
-            let tag = U1::read(seq, None);
+            let tag = U1::read(seq);
             offset = offset + 1;
             let ele = match tag {
                 INVOKEDYNAMIC_TAG => {
-                    let bootstrap_method_attr_idx = U2::read(seq, None);
-                    let name_and_type_idx = U2::read(seq, None);
+                    let bootstrap_method_attr_idx = U2::read(seq);
+                    let name_and_type_idx = U2::read(seq);
                     ConstantItem::InvokeDynamic(bootstrap_method_attr_idx, name_and_type_idx)
                 }
                 METHODTYPE_TAG => {
-                    let desc_idx = U2::read(seq, None);
+                    let desc_idx = U2::read(seq);
                     ConstantItem::MethodType(desc_idx)
                 }
                 METHODHANDLE_TAG => {
-                    let ref_type = U1::read(seq, None);
-                    let ref_idx = U2::read(seq, None);
+                    let ref_type = U1::read(seq);
+                    let ref_idx = U2::read(seq);
                     ConstantItem::MethodHandle(ref_type, ref_idx)
                 }
                 INTERFACEMETHODREF_TAG => {
-                    let class_idx = U2::read(seq, None);
-                    let name_and_type_idx = U2::read(seq, None);
+                    let class_idx = U2::read(seq);
+                    let name_and_type_idx = U2::read(seq);
                     ConstantItem::InterfaceMethodRef(class_idx, name_and_type_idx)
                 }
                 STRING_TAG => {
-                    let string_idx = U2::read(seq, None);
+                    let string_idx = U2::read(seq);
                     ConstantItem::String(string_idx)
                 }
                 CLASS_TAG => {
-                    let name_idx = U2::read(seq, None);
+                    let name_idx = U2::read(seq);
                     ConstantItem::Class(name_idx)
                 }
                 METHODREF_TAG => {
-                    let class_idx = U2::read(seq, None);
-                    let name_and_type_idx = U2::read(seq, None);
+                    let class_idx = U2::read(seq);
+                    let name_and_type_idx = U2::read(seq);
                     ConstantItem::MethodRef(class_idx, name_and_type_idx)
                 }
                 FIELDREF_TAG => {
-                    let class_idx = U2::read(seq, None);
-                    let name_and_type_idx = U2::read(seq, None);
+                    let class_idx = U2::read(seq);
+                    let name_and_type_idx = U2::read(seq);
                     ConstantItem::FieldRef(class_idx, name_and_type_idx)
                 }
                 UTF8_TAG => {
-                    let length = U2::read(seq, None);
+                    let length = U2::read(seq);
                     let mut buf = Vec::<u8>::with_capacity(length as usize);
                     for _x in 0..length {
-                        buf.push(U1::read(seq, None));
+                        buf.push(U1::read(seq));
                     }
                     // TODO MUTF-8 encode
                     let s = str::from_utf8(&buf).unwrap();
                     ConstantItem::UTF8(s.to_string())
                 }
                 INTEGER_TAG => {
-                    let v = U4::read(seq, None);
+                    let v = U4::read(seq);
                     let i: i32 = unsafe { mem::transmute::<u32, i32>(v) };
                     ConstantItem::Integer(i)
                 }
                 FLOAT_TAG => {
-                    let v = U4::read(seq, None);
+                    let v = U4::read(seq);
                     let i: f32 = unsafe { mem::transmute::<u32, f32>(v) };
                     ConstantItem::Float(i)
                 }
                 LONG_TAG => {
-                    let v = U8::read(seq, None);
+                    let v = U8::read(seq);
                     let i: i64 = unsafe { mem::transmute::<u64, i64>(v) };
                     offset = offset + 1;
                     pool.push(ConstantItem::NIL);
                     ConstantItem::Long(i)
                 }
                 DOUBLE_TAG => {
-                    let v = U8::read(seq, None);
+                    let v = U8::read(seq);
                     let i: f64 = unsafe { mem::transmute::<u64, f64>(v) };
                     offset = offset + 1;
                     pool.push(ConstantItem::NIL);
                     ConstantItem::Double(i)
                 }
                 NAMEANDTYPE_TAG => {
-                    let name_idx = U2::read(seq, None);
-                    let desc_idx = U2::read(seq, None);
+                    let name_idx = U2::read(seq);
+                    let desc_idx = U2::read(seq);
                     ConstantItem::NameAndType(name_idx, desc_idx)
                 }
                 _ => panic!("invalid classfile"),
