@@ -47,4 +47,16 @@ impl Class {
     pub fn get_class_name(&self) -> &str {
         constant_pool::get_str(&self.constant_pool, self.this_class)
     }
+
+    pub fn get_method(&self, method_name: &str, method_descriptor: &str) -> Result<&Method, ()> {
+        for m in &self.methods {
+            if constant_pool::get_str(&self.constant_pool, m.name_index) == method_name
+                && constant_pool::get_str(&self.constant_pool, m.descriptor_index)
+                    == method_descriptor
+            {
+                return Ok(&m);
+            }
+        }
+        Err(())
+    }
 }

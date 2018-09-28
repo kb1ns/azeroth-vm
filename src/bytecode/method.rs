@@ -38,3 +38,4 @@ impl Traveler<Method> for Method {
         }
     }
 }
+
