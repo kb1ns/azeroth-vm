@@ -1,5 +1,6 @@
 use super::classpath::Classpath;
 use super::bytecode::class::Class;
+use super::bytecode::attribute::Attribute;
 
 pub mod heap;
 pub mod stack;

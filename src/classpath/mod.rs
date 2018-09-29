@@ -1,7 +1,7 @@
 extern crate zip;
 
 use super::regex::Regex;
-use std::fs;
+use std;
 use std::fs::File;
 use std::path::Path;
 use std::io::Read;
@@ -16,11 +16,10 @@ impl ClassEntry {
     fn find_class(&self, class_file: &str) -> Option<Vec<u8>> {
         match self {
             &ClassEntry::Dir(ref dir) => {
-                let mut abs_path = dir.clone();
-                abs_path.push_str(class_file);
-                let classfile = Path::new(&abs_path);
-                if classfile.exists() && classfile.is_file() {
-                    let mut f = File::open(classfile).unwrap();
+                let mut abs_path = std::path::PathBuf::from(&dir);
+                abs_path.push(class_file);
+                if abs_path.exists() && abs_path.is_file() {
+                    let mut f = File::open(abs_path).unwrap();
                     let meta = f.metadata().unwrap();
                     let mut buf = Vec::<u8>::with_capacity(meta.len() as usize);
                     f.read_to_end(&mut buf);
@@ -78,7 +77,7 @@ impl Classpath {
     pub fn find_resource(&self, resource_name: &str) -> Option<File> {
         for entry in &self.app {
             match entry {
-                &ClassEntry::Dir(ref dir) => match fs::read_dir(dir) {
+                &ClassEntry::Dir(ref dir) => match std::fs::read_dir(dir) {
                     Err(_) => panic!("bootstrap classpath read error."),
                     Ok(paths) => {
                         let f = paths

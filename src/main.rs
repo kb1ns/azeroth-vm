@@ -8,7 +8,7 @@ fn main() {
     // TODO resovle args
     match std::env::var("JAVA_HOME") {
         Ok(home) => {
-            start_vm("java.lang.String", "", &home);
+            start_vm("HelloWorld", "/tmp", &home);
         }
         Err(_) => {
             panic!("JAVA_HOME not set");
@@ -51,6 +51,7 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
     let system_paths = resolve_system_classpath(java_home);
     let user_paths = resolve_user_classpath(user_classpath);
     let mut arena = mem::metaspace::ClassArena::init(user_paths, system_paths);
+    println!("{}", arena.cp.get_classpath());
     let main_class = Regex::new(r"\.").unwrap().replace_all(class_name, "/");
     if let Some(klass) = arena.find_class(main_class.as_ref()) {
         // TODO check class has main method
