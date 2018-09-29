@@ -1,4 +1,3 @@
-use std::mem;
 use super::*;
 
 pub struct JvmStack<'r> {

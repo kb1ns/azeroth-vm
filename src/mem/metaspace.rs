@@ -39,7 +39,7 @@ impl ClassArena {
             bytecode: class,
             classloader: classloader,
         };
-        let klass_name = klass.bytecode.get_class_name().to_string();
+        let klass_name = klass.bytecode.this_class_name.clone();
         self.classes.insert(klass_name.clone(), klass);
         if let Some(k) = self.classes.get(&klass_name) {
             return k;

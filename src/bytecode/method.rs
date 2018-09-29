@@ -1,4 +1,5 @@
 use super::Traveler;
+use super::constant_pool::ConstantPool;
 use bytecode::atom::*;
 use bytecode::attribute::*;
 
@@ -6,36 +7,43 @@ pub type Methods = Vec<Method>;
 
 pub struct Method {
     pub access_flag: U2,
-    pub name_index: U2,
-    pub descriptor_index: U2,
+    pub name: String,
+    pub descriptor: String,
     pub attributes: Vec<Attribute>,
 }
 
 impl Traveler<Methods> for Methods {
-    fn read<I>(seq: &mut I) -> Methods
+    fn read<I>(seq: &mut I, constants: Option<&ConstantPool>) -> Methods
     where
         I: Iterator<Item = u8>,
     {
-        let size = U2::read(seq);
+        let size = U2::read(seq, None);
         let mut methods = Vec::<Method>::with_capacity(size as usize);
         for _x in 0..size {
-            methods.push(Method::read(seq));
+            methods.push(Method::read(seq, constants));
         }
         methods
     }
 }
 
 impl Traveler<Method> for Method {
-    fn read<I>(seq: &mut I) -> Method
+    fn read<I>(seq: &mut I, constants: Option<&ConstantPool>) -> Method
     where
         I: Iterator<Item = u8>,
     {
-        Method {
-            access_flag: U2::read(seq),
-            name_index: U2::read(seq),
-            descriptor_index: U2::read(seq),
-            attributes: Attributes::read(seq),
+        let access_flag = U2::read(seq, None);
+        let name_idx = U2::read(seq, None);
+        let descriptor_idx = U2::read(seq, None);
+        if let Some(pool) = constants {
+            return Method {
+                access_flag: access_flag,
+                name: pool.get_str(name_idx).to_string(),
+                descriptor: pool.get_str(descriptor_idx).to_string(),
+                attributes: Attributes::read(seq, Some(pool)),
+            };
         }
+        panic!("need constant pool to resolve methods");
     }
+
 }
 
