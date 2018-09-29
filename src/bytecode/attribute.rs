@@ -4,14 +4,16 @@ use bytecode::atom::*;
 
 pub type Attributes = Vec<Attribute>;
 
-pub struct Attribute {
-    pub name: String,
-    pub content: Vec<U1>,
+pub struct ExceptionHandler {
+    pub start_pc: U2,
+    pub end_pc: U2,
+    pub handler_pc: U2,
+    pub catch_type: Option<String>,
 }
 
-pub enum AttributeInfo {
+pub enum Attribute {
     ConstantValue(Vec<U1>),
-    Code(Vec<U1>),
+    Code(U2, U2, Vec<u8>, Vec<ExceptionHandler>, Attributes),
     StackMapTable(Vec<U1>),
     Exceptions(Vec<U1>),
     BootstrapMethods(Vec<U1>),
@@ -30,6 +32,25 @@ pub enum AttributeInfo {
     MethodParameters(Vec<U1>),
     // above for Java SE
 }
+
+pub const ConstantValue: &'static str = "ConstantValue";
+pub const Code: &'static str = "Code";
+pub const StackMapTable: &'static str = "StackMapTable";
+pub const Exceptions: &'static str = "Exceptions";
+pub const BootstrapMethods: &'static str = "BootstrapMethods";
+pub const InnerClasses: &'static str = "InnerClasses";
+pub const EnclosingMethod: &'static str = "EnclosingMethod";
+pub const Synthetic: &'static str = "Synthetic";
+pub const Signature: &'static str = "Signature";
+pub const RuntimeVisibleAnnotations: &'static str = "RuntimeVisibleAnnotations";
+pub const RuntimeInvisibleAnnotations: &'static str = "RuntimeInvisibleAnnotations";
+pub const RuntimeVisibleParameterAnnotations: &'static str = "RuntimeVisibleParameterAnnotations";
+pub const RuntimeInvisibleParameterAnnotations: &'static str =
+    "RuntimeInvisibleParameterAnnotations";
+pub const RuntimeVisibleTypeAnnotations: &'static str = "RuntimeVisibleTypeAnnotations";
+pub const RuntimeInvisibleTypeAnnotations: &'static str = "RuntimeInvisibleTypeAnnotations";
+pub const AnnotationDefault: &'static str = "AnnotationDefault";
+pub const MethodParameters: &'static str = "MethodParameters";
 
 impl Traveler<Attributes> for Attributes {
     fn read<I>(seq: &mut I, constants: Option<&ConstantPool>) -> Attributes
@@ -50,17 +71,53 @@ impl Traveler<Attribute> for Attribute {
     where
         I: Iterator<Item = u8>,
     {
-        let name_index = U2::read(seq, None);
+        let name_idx = U2::read(seq, None);
         let length = U4::read(seq, None) as usize;
-        let mut content = Vec::<U1>::with_capacity(length);
-        for _x in 0..length {
-            content.push(U1::read(seq, None));
-        }
         if let Some(pool) = constants {
-            return Attribute {
-                name: pool.get_str(name_index).to_string(),
-                content: content,
-            };
+            match pool.get_str(name_idx) {
+                Code => {
+                    let max_stacks = U2::read(seq, None);
+                    let max_locals = U2::read(seq, None);
+                    let code_length = U4::read(seq, None);
+                    let mut code = Vec::<u8>::with_capacity(code_length as usize);
+                    for _x in 0..code_length {
+                        code.push(U1::read(seq, None));
+                    }
+                    let exception_handler_count = U2::read(seq, None);
+                    let mut exception_handlers =
+                        Vec::<ExceptionHandler>::with_capacity(exception_handler_count as usize);
+                    for _x in 0..exception_handler_count {
+                        let start_pc = U2::read(seq, None);
+                        let end_pc = U2::read(seq, None);
+                        let handler_pc = U2::read(seq, None);
+                        let catch_type_idx = U2::read(seq, Some(pool));
+                        let catch_type = match catch_type_idx {
+                            0 => None,
+                            _ => Some(pool.get_str(catch_type_idx).to_string()),
+                        };
+                        exception_handlers.push(ExceptionHandler {
+                            start_pc: start_pc,
+                            end_pc: end_pc,
+                            handler_pc: handler_pc,
+                            catch_type: catch_type,
+                        })
+                    }
+                    return Attribute::Code(
+                        max_stacks,
+                        max_locals,
+                        code,
+                        exception_handlers,
+                        Attributes::read(seq, Some(pool)),
+                    );
+                }
+                _ => {
+                    let mut content = Vec::<U1>::with_capacity(length);
+                    for _x in 0..length {
+                        content.push(U1::read(seq, None));
+                    }
+                    return Attribute::ConstantValue(content);
+                }
+            }
         }
         panic!("need constant pool to resolve attributes");
     }

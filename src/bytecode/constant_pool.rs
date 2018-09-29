@@ -25,7 +25,6 @@ pub enum ConstantItem {
 }
 
 impl ConstantPool {
-
     pub fn get_integer(&self, idx: U2) -> i32 {
         if let Some(item) = self.0.get(idx as usize) {
             match item {

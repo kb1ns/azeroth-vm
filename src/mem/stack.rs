@@ -42,6 +42,7 @@ impl<'r> JvmStack<'r> {
         // if let Some(ref f) = self.frames.pop() {
         //     self.stack_size = self.stack_size - f.get_frame_size();
         // }
+        self.frames.pop();
     }
 
     pub fn top(&self) -> &'r Frame {
