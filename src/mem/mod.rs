@@ -1,6 +1,7 @@
 use super::classpath::Classpath;
 use super::bytecode::class::Class;
 use super::bytecode::attribute::Attribute;
+use super::regex::Regex;
 
 pub mod heap;
 pub mod stack;

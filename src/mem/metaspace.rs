@@ -1,9 +1,10 @@
-use std::collections::BTreeMap;
+use std;
+use super::Regex;
 
 pub struct ClassArena {
     pub cp: super::Classpath,
-    // TODO
-    pub classes: BTreeMap<String, Klass>,
+    // TODO allow a class been loaded by different classloader instance
+    pub classes: std::sync::RwLock<std::collections::BTreeMap<String, std::sync::Arc<Klass>>>,
 }
 
 pub struct Klass {
@@ -14,7 +15,7 @@ pub struct Klass {
 pub enum Classloader {
     ROOT,
     EXT,
-    // TODO
+    // TODO classloader instance
     APP([u8; 4]),
 }
 
@@ -29,36 +30,48 @@ impl ClassArena {
         }
         ClassArena {
             cp: cp,
-            classes: BTreeMap::new(),
+            classes: std::sync::RwLock::new(std::collections::BTreeMap::new()),
         }
     }
 
-    fn define_class(&mut self, bytecode: Vec<u8>, classloader: Classloader) -> &Klass {
+    fn define_class(&self, bytecode: Vec<u8>, classloader: Classloader) -> std::sync::Arc<Klass> {
         let class = super::Class::from_vec(bytecode);
         let klass = Klass {
             bytecode: class,
             classloader: classloader,
         };
+        let klass = std::sync::Arc::new(klass);
+        let klass_share = klass.clone();
         let klass_name = klass.bytecode.this_class_name.clone();
-        self.classes.insert(klass_name.clone(), klass);
-        if let Some(k) = self.classes.get(&klass_name) {
-            return k;
+        let mut map = self.classes.write().unwrap();
+        if let Some(old_class) = map.insert(klass_name.clone(), klass) {
+            // TODO load a class twice
         }
-        panic!("java.lang.NoClassDefFoundError");
+        klass_share
     }
 
-    // TODO make this function thread-safe
-    pub fn find_class(&mut self, class_name: &str) -> Option<&Klass> {
-        if self.classes.contains_key(class_name) {
-            return self.classes.get(class_name);
+    pub fn find_class(&self, class: &str) -> Option<std::sync::Arc<Klass>> {
+        let class_name = Regex::new(r"\.")
+            .unwrap()
+            .replace_all(class, "/")
+            .into_owned();
+        {
+            let map = self.classes.read().unwrap();
+            if map.contains_key(&class_name) {
+                return match map.get(&class_name) {
+                    None => None,
+                    Some(ptr) => Some(ptr.clone()),
+                };
+            }
         }
-        if let Some(bytecode) = self.cp.find_bootstrap_class(class_name) {
+        // TODO indicate classloader explicitly or use thread-context parent classloader
+        if let Some(bytecode) = self.cp.find_bootstrap_class(&class_name) {
             return Some(self.define_class(bytecode, Classloader::ROOT));
         }
-        if let Some(bytecode) = self.cp.find_ext_class(class_name) {
+        if let Some(bytecode) = self.cp.find_ext_class(&class_name) {
             return Some(self.define_class(bytecode, Classloader::EXT));
         }
-        if let Some(bytecode) = self.cp.find_app_class(class_name) {
+        if let Some(bytecode) = self.cp.find_app_class(&class_name) {
             // TODO classloader instance
             return Some(self.define_class(bytecode, Classloader::ROOT));
         }

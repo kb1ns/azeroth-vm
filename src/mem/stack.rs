@@ -16,6 +16,8 @@ pub struct Frame<'r> {
     pub descriptor: String,
 }
 
+pub struct ThreadContext {}
+
 impl<'r> JvmStack<'r> {
     pub fn allocate(max_stack_size: usize) -> JvmStack<'r> {
         JvmStack {
