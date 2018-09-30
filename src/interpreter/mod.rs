@@ -1,11 +1,10 @@
 use std;
 use super::mem::*;
+use super::mem::stack::*;
 use super::mem::metaspace::ClassArena;
-use super::mem::stack::JvmStack;
-use super::mem::stack::ThreadContext;
 
 pub struct Interpreter {
-    class_arena: std::sync::Arc<ClassArena>,
+    pub class_arena: std::sync::Arc<ClassArena>,
     // TODO heap
 }
 
@@ -18,6 +17,12 @@ impl Interpreter {
         context: &ThreadContext,
     ) {
         let mut stack = JvmStack::allocate(128 * 1024);
+        // init first frame
+        if let Some(klass) = self.class_arena.find_class(class_name) {
+            let mut f = Frame::new(&klass.as_ref().bytecode, method_name, method_descriptor);
+        } else {
+            panic!("java.lang.ClassNotFoundException");
+        }
     }
 
     // TODO

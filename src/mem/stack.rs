@@ -11,9 +11,12 @@ pub struct JvmStack<'r> {
 pub struct Frame<'r> {
     pub locals: Vec<Slot>,
     pub operands: Vec<Slot>,
-    pub class_ref: &'r Class,
-    pub method_name: String,
-    pub descriptor: String,
+    pub class: &'r Class,
+    pub code: &'r [u8],
+    pub exception_handler: &'r [ExceptionHandler],
+    pub attributes: &'r Attributes,
+    pub method_name: &'r str,
+    pub descriptor: &'r str,
 }
 
 pub struct ThreadContext {}
@@ -28,8 +31,8 @@ impl<'r> JvmStack<'r> {
         }
     }
 
-    pub fn push(&mut self, class_ref: &'r Class, method_name: String, method_descriptor: String) {
-        let f = Frame::new(class_ref, method_name, method_descriptor);
+    pub fn push(&mut self, class: &'r Class, method_name: &'r str, method_descriptor: &'r str) {
+        let f = Frame::new(class, method_name, method_descriptor);
         // TODO check stack size
         self.frames.push(f);
     }
@@ -54,11 +57,21 @@ impl<'r> JvmStack<'r> {
 }
 
 impl<'r> Frame<'r> {
-    pub fn new(class_ref: &'r Class, method_name: String, descriptor: String) -> Frame<'r> {
-        if let Ok(method) = class_ref.get_method(&method_name, &descriptor) {
-            if let Some(&Attribute::Code(stacks, locals, _, _, _)) = method.get_code() {
+    pub fn new(class: &'r Class, method_name: &'r str, descriptor: &'r str) -> Frame<'r> {
+        if let Ok(method) = class.get_method(&method_name, &descriptor) {
+            if let Some(&Attribute::Code(
+                stacks,
+                locals,
+                ref code,
+                ref exception_handler,
+                ref attributes,
+            )) = method.get_code()
+            {
                 return Frame {
-                    class_ref: class_ref,
+                    class: class,
+                    code: code,
+                    exception_handler: exception_handler,
+                    attributes: attributes,
                     method_name: method_name,
                     descriptor: descriptor,
                     locals: Vec::<Slot>::with_capacity(locals as usize),
