@@ -1,16 +1,16 @@
 use super::*;
+use std;
 
 pub struct JvmStack<'r> {
     pub frames: Vec<Frame<'r>>,
     pub max_stack_size: usize,
     pub stack_size: usize,
+    pub pc: u32,
 }
 
 pub struct Frame<'r> {
     pub locals: Vec<Slot>,
     pub operands: Vec<Slot>,
-    // tricky
-    pub pc: usize,
     pub class_ref: &'r Class,
     pub method_name: String,
     pub descriptor: String,
@@ -22,6 +22,7 @@ impl<'r> JvmStack<'r> {
             frames: Vec::<Frame>::new(),
             max_stack_size: max_stack_size,
             stack_size: 0,
+            pc: 0,
         }
     }
 
@@ -33,19 +34,20 @@ impl<'r> JvmStack<'r> {
 
     pub fn pop(&mut self) {
         if let Some(f) = self.frames.pop() {
-            // TODO resolve return type
-
+            if !self.frames.is_empty() {
+                let current = self.frames.len() - 1;
+                if let Some(ret_addr) = self.frames[current].locals.pop() {
+                    unsafe {
+                        self.pc = std::mem::transmute::<Slot, u32>(ret_addr);
+                    }
+                }
+            }
         }
         panic!("pop empty stack");
     }
 
-    pub fn top(&self) -> &'r Frame {
-        match self.frames.last() {
-            Some(frame) => frame,
-            None => {
-                panic!("fatal error: Stack out of range");
-            }
-        }
+    pub fn current_index(&self) -> usize {
+        self.frames.len() - 1
     }
 }
 
@@ -57,7 +59,6 @@ impl<'r> Frame<'r> {
                     class_ref: class_ref,
                     method_name: method_name,
                     descriptor: descriptor,
-                    pc: 0,
                     locals: Vec::<Slot>::with_capacity(locals as usize),
                     operands: Vec::<Slot>::with_capacity(stacks as usize),
                 };

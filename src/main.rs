@@ -50,24 +50,32 @@ fn resolve_user_classpath(user_classpath: &str) -> Vec<String> {
 fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
     let system_paths = resolve_system_classpath(java_home);
     let user_paths = resolve_user_classpath(user_classpath);
-    let mut arena = mem::metaspace::ClassArena::init(user_paths, system_paths);
-    println!("{}", arena.cp.get_classpath());
-    let main_class = Regex::new(r"\.").unwrap().replace_all(class_name, "/");
-    if let Some(klass) = arena.find_class(main_class.as_ref()) {
-        // TODO check class has main method
-        // TODO default stack size
-        let mut main_stack = mem::stack::JvmStack::allocate(128 * 1024);
-        // init first frame
-        main_stack.push(
-            &klass.bytecode,
-            "main".to_string(),
-            "([Ljava/lang/String;)V".to_string(),
-        );
-        unsafe {
-            // TODO single directive
-            interpreter::run(&mut main_stack);
-        }
-    } else {
-        panic!("java.lang.ClassNotFoundException");
-    }
+    // we need load class into class_arena
+    let mut class_arena = mem::metaspace::ClassArena::init(user_paths, system_paths);
+    // TODO allocate heap
+    // TODO GC thread
+    let interpreter = interpreter::Interpreter {
+        class_arena: std::sync::Arc::new(class_arena),
+        // TODO heap
+    };
+    // TODO args, thread context
+    interpreter.execute(class_name, "main", "([Ljava/lang/String;)V");
+    // let main_class = Regex::new(r"\.").unwrap().replace_all(class_name, "/");
+    // if let Some(klass) = arena.find_class(main_class.as_ref()) {
+    //     // TODO check class has main method
+    //     // TODO default stack size
+    //     let mut main_stack = mem::stack::JvmStack::allocate(128 * 1024);
+    //     // init first frame
+    //     main_stack.push(
+    //         &klass.bytecode,
+    //         "main".to_string(),
+    //         "([Ljava/lang/String;)V".to_string(),
+    //     );
+    //     unsafe {
+    //         // TODO single directive
+    //         //  interpreter::run(&mut main_stack);
+    //     }
+    // } else {
+    //     panic!("java.lang.ClassNotFoundException");
+    // }
 }
