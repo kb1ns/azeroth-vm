@@ -55,8 +55,6 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
     let interpreter = interpreter::Interpreter {
         class_arena: std::sync::Arc::new(class_arena),
     };
-    // TODO explicit lifetime
-    let root_context = mem::stack::ThreadContext {};
     // TODO args
-    interpreter.execute(class_name, "main", "([Ljava/lang/String;)V", &root_context);
+    interpreter.execute(class_name, "main", "([Ljava/lang/String;)V");
 }
