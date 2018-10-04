@@ -1,5 +1,9 @@
 # Yet Another Toy JVM(work-in-progress)
 
-Learn how JVM works. Just a few directives currently are implemented to run hello-world.     
+Learn how JVM works. Just a few directives are currently implemented to run hello-world.     
 
-try: compile HelloWorld.java and move HelloWorld.class to `/tmp` and then `cargo run`
+try:    
+
+- `javac java/Sum.java`
+- `cargo build`
+- `target/debug/java --classpath $(pwd)/java Sum` or `cd java && ../target/debug/java Sum`

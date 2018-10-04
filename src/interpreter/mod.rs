@@ -19,7 +19,13 @@ pub enum Return {
 
 impl Interpreter {
     // TODO locals
-    pub fn execute(&self, class_name: &str, method_name: &str, method_descriptor: &str) -> Return {
+    pub fn execute(
+        &self,
+        class_name: &str,
+        method_name: &str,
+        method_descriptor: &str,
+        mut args: Vec<Slot>,
+    ) -> Return {
         if let Some(klass) = self.class_arena.find_class(class_name) {
             if let Ok(method) = klass.bytecode.get_method(method_name, method_descriptor) {
                 if let Some(&Attribute::Code(
@@ -31,9 +37,10 @@ impl Interpreter {
                 )) = method.get_code()
                 {
                     let mut pc: U4 = 0;
-                    let mut locals = vec![NULL; locals as usize]; //Vec::<Slot>::with_capacity(locals as usize);
-                                                                  // TODO mock args
-                                                                  // locals.push(NULL);
+                    while args.len() != locals as usize {
+                        args.push(NULL);
+                    }
+                    let mut locals = args;
                     let mut operands = Vec::<Slot>::with_capacity(stacks as usize);
                     while pc < code.len() as U4 {
                         println!("pc -> {}", pc);

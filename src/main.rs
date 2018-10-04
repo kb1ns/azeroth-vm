@@ -1,16 +1,35 @@
+extern crate argparse;
 extern crate azerothvm;
 extern crate regex;
 
 use azerothvm::*;
 
 fn main() {
-    // TODO resovle args
-    match std::env::var("JAVA_HOME") {
-        Ok(home) => {
-            start_vm("HelloWorld", "/tmp", &home);
+    match std::env::current_dir() {
+        Ok(dir) => {
+            if let Some(cp) = dir.to_str() {
+                let mut main_class = String::new();
+                let mut cp = cp.to_string();
+                {
+                    let mut args = argparse::ArgumentParser::new();
+                    args.refer(&mut cp)
+                        .add_option(&["--classpath"], argparse::Store, "");
+                    args.refer(&mut main_class)
+                        .add_argument("", argparse::Store, "");
+                    args.parse_args_or_exit();
+                }
+                match std::env::var("JAVA_HOME") {
+                    Ok(home) => {
+                        start_vm(&main_class, &cp, &home);
+                    }
+                    Err(_) => {
+                        panic!("JAVA_HOME not set");
+                    }
+                }
+            }
         }
         Err(_) => {
-            panic!("JAVA_HOME not set");
+            panic!("can't read file");
         }
     }
 }
@@ -56,5 +75,10 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
         class_arena: std::sync::Arc::new(class_arena),
     };
     // TODO args
-    interpreter.execute(class_name, "main", "([Ljava/lang/String;)V");
+    interpreter.execute(
+        class_name,
+        "main",
+        "([Ljava/lang/String;)V",
+        vec![mem::NULL],
+    );
 }
