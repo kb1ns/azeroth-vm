@@ -1,5 +1,5 @@
-use super::Traveler;
 use super::constant_pool::ConstantPool;
+use super::Traveler;
 use bytecode::atom::*;
 use bytecode::attribute::*;
 

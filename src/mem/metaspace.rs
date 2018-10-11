@@ -1,5 +1,5 @@
-use std;
 use super::Regex;
+use std;
 
 pub struct ClassArena {
     pub cp: super::Classpath,

@@ -1,5 +1,5 @@
-use super::*;
 use super::metaspace::Klass;
+use super::*;
 use std;
 
 pub struct JvmStack {

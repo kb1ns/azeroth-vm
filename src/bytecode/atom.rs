@@ -1,5 +1,5 @@
-use super::Traveler;
 use super::constant_pool::ConstantPool;
+use super::Traveler;
 use std;
 
 pub type U1 = u8;

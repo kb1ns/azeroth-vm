@@ -1,10 +1,10 @@
-pub mod class;
 pub mod atom;
-pub mod constant_pool;
-pub mod interface;
-pub mod field;
-pub mod method;
 pub mod attribute;
+pub mod class;
+pub mod constant_pool;
+pub mod field;
+pub mod interface;
+pub mod method;
 
 use self::constant_pool::ConstantPool;
 

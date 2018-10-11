@@ -3,8 +3,8 @@ extern crate zip;
 use super::regex::Regex;
 use std;
 use std::fs::File;
-use std::path::Path;
 use std::io::Read;
+use std::path::Path;
 
 enum ClassEntry {
     Jar(String),

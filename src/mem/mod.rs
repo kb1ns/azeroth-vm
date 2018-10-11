@@ -1,11 +1,11 @@
-use super::classpath::Classpath;
-use super::bytecode::class::Class;
 use super::bytecode::attribute::*;
+use super::bytecode::class::Class;
+use super::classpath::Classpath;
 use super::regex::Regex;
 
 pub mod heap;
-pub mod stack;
 pub mod metaspace;
+pub mod stack;
 
 pub const NULL: Slot = [0x00, 0x00, 0x00, 0x00];
 

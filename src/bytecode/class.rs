@@ -1,9 +1,9 @@
 use bytecode::atom::*;
-use bytecode::constant_pool::*;
-use bytecode::interface::*;
-use bytecode::field::*;
-use bytecode::method::*;
 use bytecode::attribute::*;
+use bytecode::constant_pool::*;
+use bytecode::field::*;
+use bytecode::interface::*;
+use bytecode::method::*;
 use bytecode::*;
 
 pub struct Class {

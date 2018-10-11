@@ -1,9 +1,9 @@
-use std;
 use super::bytecode::atom::*;
 use super::bytecode::attribute::Attribute;
-use super::mem::*;
-use super::mem::stack::*;
 use super::mem::metaspace::ClassArena;
+use super::mem::stack::*;
+use super::mem::*;
+use std;
 
 pub struct Interpreter {
     pub class_arena: std::sync::Arc<ClassArena>,

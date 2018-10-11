@@ -1,7 +1,7 @@
 use super::Traveler;
-use std::str;
-use std::mem;
 use bytecode::atom::*;
+use std::mem;
+use std::str;
 
 pub struct ConstantPool(Vec<ConstantItem>);
 
