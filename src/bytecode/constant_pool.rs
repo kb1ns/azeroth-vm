@@ -101,6 +101,9 @@ impl ConstantPool {
                 &ConstantItem::InterfaceMethodRef(c_idx, nt_idx) => {
                     return (&self.get_str(c_idx), self.get_name_and_type(nt_idx));
                 }
+                &ConstantItem::FieldRef(c_idx, f_idx) => {
+                    return (&self.get_str(c_idx), self.get_name_and_type(f_idx));
+                }
                 _ => {
                     panic!("invalid class file");
                 }

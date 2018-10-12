@@ -237,8 +237,19 @@ impl Interpreter {
                                 0xb1 => {
                                     return Return::Void;
                                 }
+                                // getstatic
+                                0xb2 => {
+                                    let field_idx = (code[(pc + 1) as usize] as U2) << 8
+                                        | code[(pc + 2) as usize] as U2;
+                                    let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
+                                    // TODO load class `c`, push `f` to operands according to the type `t`
+                                    pc = pc + 3;
+                                }
                                 _ => {
-                                    pc = pc + 1;
+                                    panic!(format!(
+                                        "directive {:?} not implemented at present",
+                                        code[pc as usize]
+                                    ));
                                 }
                             }
                         }
