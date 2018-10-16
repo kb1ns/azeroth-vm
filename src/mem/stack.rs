@@ -1,6 +1,3 @@
-use super::metaspace::Klass;
-use super::*;
-
 pub struct JvmStack {
     pub frames: Vec<Frame>,
     pub max_stack_size: usize,

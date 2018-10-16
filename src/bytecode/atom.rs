@@ -8,7 +8,7 @@ pub type U4 = u32;
 pub type U8 = u64;
 
 impl Traveler<U1> for U1 {
-    fn read<I>(seq: &mut I, constants: Option<&ConstantPool>) -> U1
+    fn read<I>(seq: &mut I, _constants: Option<&ConstantPool>) -> U1
     where
         I: Iterator<Item = u8>,
     {
@@ -17,7 +17,7 @@ impl Traveler<U1> for U1 {
 }
 
 impl Traveler<U2> for U2 {
-    fn read<I>(seq: &mut I, constants: Option<&ConstantPool>) -> U2
+    fn read<I>(seq: &mut I, _constants: Option<&ConstantPool>) -> U2
     where
         I: Iterator<Item = u8>,
     {
@@ -29,7 +29,7 @@ impl Traveler<U2> for U2 {
 }
 
 impl Traveler<U4> for U4 {
-    fn read<I>(seq: &mut I, constants: Option<&ConstantPool>) -> U4
+    fn read<I>(seq: &mut I, _constants: Option<&ConstantPool>) -> U4
     where
         I: Iterator<Item = u8>,
     {
@@ -43,7 +43,7 @@ impl Traveler<U4> for U4 {
 }
 
 impl Traveler<U8> for U8 {
-    fn read<I>(seq: &mut I, constants: Option<&ConstantPool>) -> U8
+    fn read<I>(seq: &mut I, _constants: Option<&ConstantPool>) -> U8
     where
         I: Iterator<Item = u8>,
     {

@@ -33,24 +33,25 @@ pub enum Attribute {
     // above for Java SE
 }
 
-pub const ConstantValue: &'static str = "ConstantValue";
-pub const Code: &'static str = "Code";
-pub const StackMapTable: &'static str = "StackMapTable";
-pub const Exceptions: &'static str = "Exceptions";
-pub const BootstrapMethods: &'static str = "BootstrapMethods";
-pub const InnerClasses: &'static str = "InnerClasses";
-pub const EnclosingMethod: &'static str = "EnclosingMethod";
-pub const Synthetic: &'static str = "Synthetic";
-pub const Signature: &'static str = "Signature";
-pub const RuntimeVisibleAnnotations: &'static str = "RuntimeVisibleAnnotations";
-pub const RuntimeInvisibleAnnotations: &'static str = "RuntimeInvisibleAnnotations";
-pub const RuntimeVisibleParameterAnnotations: &'static str = "RuntimeVisibleParameterAnnotations";
-pub const RuntimeInvisibleParameterAnnotations: &'static str =
+pub const CONSTANT_VALUE: &'static str = "ConstantValue";
+pub const CODE: &'static str = "Code";
+pub const STACK_MAP_TABLE: &'static str = "StackMapTable";
+pub const EXCEPTIONS: &'static str = "Exceptions";
+pub const BOOTSTRAP_METHODS: &'static str = "BootstrapMethods";
+pub const INNER_CLASSES: &'static str = "InnerClasses";
+pub const ENCLOSING_METHOD: &'static str = "EnclosingMethod";
+pub const SYNTHETIC: &'static str = "Synthetic";
+pub const SIGNATURE: &'static str = "Signature";
+pub const RUNTIME_VISIBLE_ANNOTATIONS: &'static str = "RuntimeVisibleAnnotations";
+pub const RUNTIME_INVISIBLE_ANNOTATIONS: &'static str = "RuntimeInvisibleAnnotations";
+pub const RUNTIME_VISIBLE_PARAMETER_ANNOTATIONS: &'static str =
+    "RuntimeVisibleParameterAnnotations";
+pub const RUNTIME_INVISIBLE_PARAMETER_ANNOTATIONS: &'static str =
     "RuntimeInvisibleParameterAnnotations";
-pub const RuntimeVisibleTypeAnnotations: &'static str = "RuntimeVisibleTypeAnnotations";
-pub const RuntimeInvisibleTypeAnnotations: &'static str = "RuntimeInvisibleTypeAnnotations";
-pub const AnnotationDefault: &'static str = "AnnotationDefault";
-pub const MethodParameters: &'static str = "MethodParameters";
+pub const RUNTIME_VISIBLE_TYPE_ANNOTATIONS: &'static str = "RuntimeVisibleTypeAnnotations";
+pub const RUNTIME_INVISIBLE_TYPE_ANNOTATIONS: &'static str = "RuntimeInvisibleTypeAnnotations";
+pub const ANNOTATION_DEFAULT: &'static str = "AnnotationDefault";
+pub const METHOD_PARAMETERS: &'static str = "MethodParameters";
 
 impl Traveler<Attributes> for Attributes {
     fn read<I>(seq: &mut I, constants: Option<&ConstantPool>) -> Attributes
@@ -75,7 +76,7 @@ impl Traveler<Attribute> for Attribute {
         let length = U4::read(seq, None) as usize;
         if let Some(pool) = constants {
             match pool.get_str(name_idx) {
-                Code => {
+                CODE => {
                     let max_stacks = U2::read(seq, None);
                     let max_locals = U2::read(seq, None);
                     let code_length = U4::read(seq, None);

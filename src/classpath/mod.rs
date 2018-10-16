@@ -22,7 +22,7 @@ impl ClassEntry {
                     let mut f = File::open(abs_path).unwrap();
                     let meta = f.metadata().unwrap();
                     let mut buf = Vec::<u8>::with_capacity(meta.len() as usize);
-                    f.read_to_end(&mut buf);
+                    f.read_to_end(&mut buf).unwrap();
                     trace!("find class {} from {}", class_file, dir);
                     Some(buf)
                 } else {
@@ -36,7 +36,7 @@ impl ClassEntry {
                     let mut file = archive.by_index(i).unwrap();
                     if file.name() == class_file {
                         let mut buf = Vec::<u8>::with_capacity(file.size() as usize);
-                        file.read_to_end(&mut buf);
+                        file.read_to_end(&mut buf).unwrap();
                         trace!("find class {} from {}", class_file, jar);
                         return Some(buf);
                     }

@@ -20,9 +20,9 @@ pub struct Class {
 impl Class {
     pub fn from_vec(bytes: Vec<u8>) -> Class {
         let seq = &mut bytes.into_iter();
-        let magic_number = U4::read(seq, None);
-        let minor_version = U2::read(seq, None);
-        let major_version = U2::read(seq, None);
+        U4::read(seq, None);
+        U2::read(seq, None);
+        U2::read(seq, None);
         let constants = ConstantPool::read(seq, None);
         let access_flag = U2::read(seq, None);
         let this_class = U2::read(seq, None);

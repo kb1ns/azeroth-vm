@@ -134,7 +134,7 @@ impl ConstantPool {
 }
 
 impl Traveler<ConstantPool> for ConstantPool {
-    fn read<I>(seq: &mut I, constants: Option<&ConstantPool>) -> ConstantPool
+    fn read<I>(seq: &mut I, _constants: Option<&ConstantPool>) -> ConstantPool
     where
         I: Iterator<Item = u8>,
     {
