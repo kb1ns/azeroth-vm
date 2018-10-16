@@ -34,20 +34,26 @@ impl ClassArena {
         }
     }
 
-    fn define_class(&self, bytecode: Vec<u8>, classloader: Classloader) -> std::sync::Arc<Klass> {
-        let class = super::Class::from_vec(bytecode);
-        let klass = Klass {
-            bytecode: class,
-            classloader: classloader,
-        };
-        let klass = std::sync::Arc::new(klass);
-        let klass_share = klass.clone();
-        let klass_name = klass.bytecode.this_class_name.clone();
-        let mut map = self.classes.write().unwrap();
-        if let Some(old_class) = map.insert(klass_name.clone(), klass) {
-            // TODO load a class twice
+    pub fn define_class(&self, class_name: &str, classloader: Classloader) -> Option<Klass> {
+        if let Some(bytecode) = self.cp.find_bootstrap_class(class_name) {
+            return Some(Klass {
+                bytecode: super::Class::from_vec(bytecode),
+                classloader: classloader,
+            });
         }
-        klass_share
+        if let Some(bytecode) = self.cp.find_ext_class(class_name) {
+            return Some(Klass {
+                bytecode: super::Class::from_vec(bytecode),
+                classloader: classloader,
+            });
+        }
+        if let Some(bytecode) = self.cp.find_app_class(class_name) {
+            return Some(Klass {
+                bytecode: super::Class::from_vec(bytecode),
+                classloader: classloader,
+            });
+        }
+        None
     }
 
     pub fn find_class(&self, class: &str) -> Option<std::sync::Arc<Klass>> {
@@ -55,26 +61,10 @@ impl ClassArena {
             .unwrap()
             .replace_all(class, "/")
             .into_owned();
-        {
-            let map = self.classes.read().unwrap();
-            if map.contains_key(&class_name) {
-                return match map.get(&class_name) {
-                    None => None,
-                    Some(ptr) => Some(ptr.clone()),
-                };
-            }
+        let map = self.classes.read().unwrap();
+        match map.get(&class_name) {
+            None => None,
+            Some(ptr) => Some(ptr.clone()),
         }
-        // TODO indicate classloader explicitly or use thread-context parent classloader
-        if let Some(bytecode) = self.cp.find_bootstrap_class(&class_name) {
-            return Some(self.define_class(bytecode, Classloader::ROOT));
-        }
-        if let Some(bytecode) = self.cp.find_ext_class(&class_name) {
-            return Some(self.define_class(bytecode, Classloader::EXT));
-        }
-        if let Some(bytecode) = self.cp.find_app_class(&class_name) {
-            // TODO classloader instance
-            return Some(self.define_class(bytecode, Classloader::ROOT));
-        }
-        None
     }
 }
