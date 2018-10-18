@@ -17,6 +17,11 @@ pub type Slot = [u8; PTR_SIZE];
 pub type WideSlot = (Slot, Slot);
 pub type Word = [u8; PTR_SIZE];
 
+pub enum Value {
+    Word(Word),
+    DWord(Word, Word),
+}
+
 pub trait Memorizable<T> {
     fn memorized(&self) -> T;
 }

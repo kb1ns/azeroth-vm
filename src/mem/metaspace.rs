@@ -1,9 +1,9 @@
-use super::Regex;
+use super::*;
 use std;
 
 pub struct ClassArena {
     pub cp: super::Classpath,
-    // TODO allow a class been loaded by different classloader instance
+    // TODO allow a class been loaded by different classloader instances
     pub classes: std::sync::RwLock<std::collections::BTreeMap<String, std::sync::Arc<Klass>>>,
 }
 
@@ -15,8 +15,7 @@ pub struct Klass {
 pub enum Classloader {
     ROOT,
     EXT,
-    // TODO classloader instance
-    APP([u8; 4]),
+    APP(Word),
 }
 
 impl ClassArena {

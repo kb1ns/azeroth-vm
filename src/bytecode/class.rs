@@ -53,4 +53,13 @@ impl Class {
         }
         Err(())
     }
+
+    pub fn get_field(&self, field_name: &str, field_descriptor: &str) -> Result<&Field, ()> {
+        for f in &self.fields {
+            if f.name == field_name && f.descriptor == field_descriptor {
+                return Ok(&f)
+            }
+        }
+        Err(())
+    }
 }

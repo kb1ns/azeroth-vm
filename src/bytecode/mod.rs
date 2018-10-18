@@ -6,6 +6,7 @@ pub mod field;
 pub mod interface;
 pub mod method;
 
+use super::mem::*;
 use self::constant_pool::ConstantPool;
 
 trait Traveler<T> {
