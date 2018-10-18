@@ -51,20 +51,6 @@ impl Interpreter {
         method_descriptor: &str,
         args: Vec<Slot>,
     ) -> Result<Return, JavaError> {
-        // match self.load_class(class_name) {
-        //     Ok(klass) => match klass.bytecode.get_method(method_name, method_descriptor) {
-        //         Some(method) => self.call(&klass, method, args)?,
-        //         None => Err(fire_exception(class_name, method_name, -1, "java.lang.NoSuchMethodError")),
-        //     },
-        //     Err(mut throwable) => {
-        //         throwable.stacktrace.push(FrameInfo {
-        //             class: class_name.to_string(),
-        //             method: method_name.to_string(),
-        //             line: -1,
-        //         });
-        //         Err(throwable)
-        //     }
-        // }
         let klass = self.load_class(class_name)?;
         match klass.bytecode.get_method(method_name, method_descriptor) {
             Some(method) => self.call(&klass, method, args),
