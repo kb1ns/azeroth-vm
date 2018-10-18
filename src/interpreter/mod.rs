@@ -76,9 +76,13 @@ impl Interpreter {
                             let mut map = self.class_arena.classes.write().unwrap();
                             // init class
                             if let Some(ref clinit) = klass.bytecode.get_method("<clinit>", "()V") {
-                                if let Err(e) = self.call(&klass, clinit, vec![]) {
-                                    // TODO
-                                    panic!(e.message);
+                                if let Err(mut e) = self.call(&klass, clinit, vec![]) {
+                                    e.stacktrace.push(FrameInfo {
+                                        class: class_name.to_string(),
+                                        method: "".to_string(),
+                                        line: -1,
+                                    });
+                                    return Err(e);
                                 }
                             }
                             map.insert(class_name.to_string(), klass);
