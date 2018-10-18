@@ -45,21 +45,21 @@ impl Class {
         }
     }
 
-    pub fn get_method(&self, method_name: &str, method_descriptor: &str) -> Result<&Method, ()> {
+    pub fn get_method(&self, method_name: &str, method_descriptor: &str) -> Option<&Method> {
         for m in &self.methods {
             if m.name == method_name && m.descriptor == method_descriptor {
-                return Ok(&m);
+                return Some(&m);
             }
         }
-        Err(())
+        None
     }
 
-    pub fn get_field(&self, field_name: &str, field_descriptor: &str) -> Result<&Field, ()> {
+    pub fn get_field(&self, field_name: &str, field_descriptor: &str) -> Option<&Field> {
         for f in &self.fields {
             if f.name == field_name && f.descriptor == field_descriptor {
-                return Ok(&f)
+                return Some(&f)
             }
         }
-        Err(())
+        None
     }
 }

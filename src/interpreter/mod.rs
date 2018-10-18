@@ -12,10 +12,34 @@ pub struct Interpreter {
 }
 
 pub enum Return {
-    Throwable(Vec<String>),
     Word(Slot),
     DWord(WideSlot),
     Void,
+}
+
+pub struct JavaError {
+    // TODO exception class
+    pub message: String,
+    pub stacktrace: Vec<FrameInfo>,
+}
+
+pub struct FrameInfo {
+    class: String,
+    method: String,
+    line: isize,
+}
+
+fn fire_exception(class: &str, method: &str, line: isize, message: &str) -> JavaError {
+    JavaError {
+        message: message.to_string(),
+        stacktrace: vec![
+            FrameInfo {
+                class: class.to_string(),
+                method: method.to_string(),
+                line: line,
+            },
+        ],
+    }
 }
 
 impl Interpreter {
@@ -26,38 +50,81 @@ impl Interpreter {
         method_name: &str,
         method_descriptor: &str,
         args: Vec<Slot>,
-    ) -> Return {
-        if let Some(klass) = self.class_arena.find_class(class_name) {
-            if let Ok(method) = klass.bytecode.get_method(method_name, method_descriptor) {
-                return self.call(&klass, method, args);
-            } else {
-                // TODO
-                panic!("java.lang.NoSuchMethodError");
-            }
-        } else {
-            // TODO classloader
-            if let Some(klass) = self.class_arena.define_class(class_name, Classloader::ROOT) {
-                println!("load class {}", class_name);
-                let klass = std::sync::Arc::new(klass);
-                let klass_1 = klass.clone();
-                let mut map = self.class_arena.classes.write().unwrap();
-                if let Ok(ref clinit) = klass.bytecode.get_method("<clinit>", "()V") {
-                    self.call(&klass, clinit, vec![]);
+    ) -> Result<Return, JavaError> {
+        // match self.load_class(class_name) {
+        //     Ok(klass) => match klass.bytecode.get_method(method_name, method_descriptor) {
+        //         Some(method) => self.call(&klass, method, args)?,
+        //         None => Err(fire_exception(class_name, method_name, -1, "java.lang.NoSuchMethodError")),
+        //     },
+        //     Err(mut throwable) => {
+        //         throwable.stacktrace.push(FrameInfo {
+        //             class: class_name.to_string(),
+        //             method: method_name.to_string(),
+        //             line: -1,
+        //         });
+        //         Err(throwable)
+        //     }
+        // }
+        let klass = self.load_class(class_name)?;
+        match klass.bytecode.get_method(method_name, method_descriptor) {
+            Some(method) => self.call(&klass, method, args),
+            None => Err(fire_exception(
+                class_name,
+                method_name,
+                -1,
+                "java.lang.NoSuchMethodError",
+            )),
+        }
+    }
+
+    fn load_class(&self, class_name: &str) -> Result<std::sync::Arc<Klass>, JavaError> {
+        match self.class_arena.find_class(class_name) {
+            Some(k) => Ok(k),
+            None => {
+                // TODO classloader
+                match self.class_arena.define_class(class_name, Classloader::ROOT) {
+                    Some(klass) => {
+                        let name = class_name.to_string();
+                        {
+                            let klass = std::sync::Arc::new(klass);
+                            let mut map = self.class_arena.classes.write().unwrap();
+                            // init class
+                            if let Some(ref clinit) = klass.bytecode.get_method("<clinit>", "()V") {
+                                if let Err(e) = self.call(&klass, clinit, vec![]) {
+                                    // TODO
+                                    panic!(e.message);
+                                }
+                            }
+                            map.insert(class_name.to_string(), klass);
+                        }
+                        match self.class_arena.find_class(&name) {
+                            Some(k) => Ok(k),
+                            // won't happen
+                            None => Err(fire_exception(
+                                class_name,
+                                "",
+                                -1,
+                                "java.lang.ClassNotFoundException",
+                            )),
+                        }
+                    }
+                    None => Err(fire_exception(
+                        class_name,
+                        "",
+                        -1,
+                        "java.lang.ClassNotFoundException",
+                    )),
                 }
-                map.insert(class_name.to_string(), klass);
-                if let Ok(method) = klass_1.bytecode.get_method(method_name, method_descriptor) {
-                    return self.call(&klass_1, method, args);
-                } else {
-                    // TODO
-                    panic!("java.lang.NoSuchMethodError");
-                }
-            } else {
-                panic!("java.lang.ClassNotFoundException");
             }
         }
     }
 
-    fn call(&self, klass: &Klass, method: &Method, mut args: Vec<Slot>) -> Return {
+    fn call(
+        &self,
+        klass: &Klass,
+        method: &Method,
+        mut args: Vec<Slot>,
+    ) -> Result<Return, JavaError> {
         println!(
             "execute method {}.{}",
             &klass.bytecode.this_class_name, &method.name
@@ -265,7 +332,7 @@ impl Interpreter {
                                 | code[(pc + 2) as usize] as U4;
                         }
                         0xb1 => {
-                            return Return::Void;
+                            return Ok(Return::Void);
                         }
                         // getstatic
                         0xb2 => {
@@ -273,6 +340,12 @@ impl Interpreter {
                                 | code[(pc + 2) as usize] as U2;
                             let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
                             // TODO load class `c`, push `f` to operands according to the type `t`
+                            let class = self.load_class(c)?;
+                            if let Some(ref field) = class.bytecode.get_field(f, t) {
+                            } else {
+                                // TODO
+                                return Err(fire_exception("", "", -1, "NoSuchFieldError"));
+                            }
                             pc = pc + 3;
                         }
                         _ => {
@@ -285,10 +358,10 @@ impl Interpreter {
                 }
             }
             // TODO
-            return Return::Void;
+            Ok(Return::Void)
         } else {
             // TODO
-            panic!("Method is abstract");
+            Err(fire_exception("", "", -1, "AbstractMethodError"))
         }
     }
 }
