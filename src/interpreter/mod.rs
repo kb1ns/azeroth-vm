@@ -1,5 +1,6 @@
 use super::bytecode::atom::*;
 use super::bytecode::attribute::*;
+use super::bytecode::class::*;
 use super::bytecode::method::*;
 use super::mem::metaspace::*;
 use super::mem::*;
@@ -13,7 +14,7 @@ pub struct Interpreter {
 pub enum Return {
     Throwable(Vec<String>),
     Word(Slot),
-    DWord(Slot2),
+    DWord(WideSlot),
     Void,
 }
 
@@ -92,90 +93,85 @@ impl Interpreter {
                         }
                         // iconst -1 ~ 5
                         0x02 => {
-                            operands.push(std::mem::transmute::<i32, Slot>(-1));
+                            operands.push((-1 as i32).memorized());
                             pc = pc + 1;
                         }
                         0x03 => {
-                            operands.push(std::mem::transmute::<i32, Slot>(0));
+                            operands.push((0 as i32).memorized());
                             pc = pc + 1;
                         }
                         0x04 => {
-                            operands.push(std::mem::transmute::<i32, Slot>(1));
+                            operands.push((1 as i32).memorized());
                             pc = pc + 1;
                         }
                         0x05 => {
-                            operands.push(std::mem::transmute::<i32, Slot>(2));
+                            operands.push((2 as i32).memorized());
                             pc = pc + 1;
                         }
                         0x06 => {
-                            operands.push(std::mem::transmute::<i32, Slot>(3));
+                            operands.push((3 as i32).memorized());
                             pc = pc + 1;
                         }
                         0x07 => {
-                            operands.push(std::mem::transmute::<i32, Slot>(4));
+                            operands.push((4 as i32).memorized());
                             pc = pc + 1;
                         }
                         0x08 => {
-                            operands.push(std::mem::transmute::<i32, Slot>(5));
+                            operands.push((5 as i32).memorized());
                             pc = pc + 1;
                         }
                         // lconst 0 ~ 1
                         // byteorder: higher first
                         0x09 => {
-                            let b = std::mem::transmute::<i64, Slot2>(0);
-                            let (higher, lower) = split_slot2(b);
+                            let (lower, higher) = (0 as i64).memorized();
                             operands.push(higher);
                             operands.push(lower);
                             pc = pc + 1;
                         }
                         0x0a => {
-                            let b = std::mem::transmute::<i64, Slot2>(0);
-                            let (higher, lower) = split_slot2(b);
+                            let (lower, higher) = (1 as i64).memorized();
                             operands.push(higher);
                             operands.push(lower);
                             pc = pc + 1;
                         }
                         // fconst 0 ~ 2
                         0x0b => {
-                            operands.push(std::mem::transmute::<f32, Slot>(0.0));
+                            operands.push((0.0 as f32).memorized());
                             pc = pc + 1;
                         }
                         0x0c => {
-                            operands.push(std::mem::transmute::<f32, Slot>(1.0));
+                            operands.push((1.0 as f32).memorized());
                             pc = pc + 1;
                         }
                         0x0d => {
-                            operands.push(std::mem::transmute::<f32, Slot>(2.0));
+                            operands.push((2.0 as f32).memorized());
                             pc = pc + 1;
                         }
                         // dconst 0 ~ 1
                         0x0e => {
-                            let b = std::mem::transmute::<f64, Slot2>(0.0);
-                            let (higher, lower) = split_slot2(b);
+                            let (lower, higher) = (0.0 as f64).memorized();
                             operands.push(higher);
                             operands.push(lower);
                             pc = pc + 1;
                         }
                         0x0f => {
-                            let b = std::mem::transmute::<f64, Slot2>(1.0);
-                            let (higher, lower) = split_slot2(b);
+                            let (higher, lower) = (1.0 as f64).memorized();
                             operands.push(higher);
                             operands.push(lower);
                             pc = pc + 1;
                         }
                         // bipush
                         0x10 => {
-                            operands.push(std::mem::transmute::<i32, Slot>(
-                                code[(pc + 1) as usize] as i32,
-                            ));
+                            operands.push((code[(pc + 1) as usize] as i32).memorized());
                             pc = pc + 2;
                         }
                         // sipush
                         0x11 => {
-                            operands.push(std::mem::transmute::<i32, Slot>(
-                                (code[(pc + 1) as usize] as i32) << 8
-                                    | (code[(pc + 2) as usize] as i32),
-                            ));
+                            operands.push(
+                                ((code[(pc + 1) as usize] as i32) << 8
+                                    | (code[(pc + 2) as usize] as i32))
+                                    .memorized(),
+                            );
                             pc = pc + 3;
                         }
                         // iload 0 ~ 3
@@ -232,9 +228,12 @@ impl Interpreter {
                         0x60 => {
                             if let Some(left) = operands.pop() {
                                 if let Some(right) = operands.pop() {
-                                    let v1 = std::mem::transmute::<Slot, i32>(left);
-                                    let v2 = std::mem::transmute::<Slot, i32>(right);
-                                    operands.push(std::mem::transmute::<i32, Slot>(v1 + v2));
+                                    let v1 = left.view::<i32>();
+                                    let v2 = right.view::<i32>();
+                                    // let v1 = std::mem::transmute::<Slot, i32>(left);
+                                    // let v2 = std::mem::transmute::<Slot, i32>(right);
+                                    // operands.push(std::mem::transmute::<i32, Slot>(v1 + v2));
+                                    operands.push((v1 + v2).memorized());
                                     pc = pc + 1;
                                     continue;
                                 }
@@ -245,15 +244,18 @@ impl Interpreter {
                         0x84 => {
                             let index = code[(pc + 1) as usize] as usize;
                             let cst = code[(pc + 2) as usize] as i32;
-                            let new = std::mem::transmute::<Slot, i32>(locals[index]) + cst;
-                            locals[index] = std::mem::transmute::<i32, Slot>(new);
+                            // let new = std::mem::transmute::<Slot, i32>(locals[index]) + cst;
+                            let new = locals[index].view::<i32>() + cst;
+                            locals[index] = new.memorized();
                             pc = pc + 3;
                         }
                         // if_icmpge
                         0xa2 => {
                             let size = operands.len();
-                            let v1 = std::mem::transmute::<Slot, i32>(operands[size - 2]);
-                            let v2 = std::mem::transmute::<Slot, i32>(operands[size - 1]);
+                            // let v1 = std::mem::transmute::<Slot, i32>(operands[size - 2]);
+                            // let v2 = std::mem::transmute::<Slot, i32>(operands[size - 1]);
+                            let v1 = (operands[size - 2]).view::<i32>();
+                            let v2 = (operands[size - 1]).view::<i32>();
                             if v1 >= v2 {
                                 pc = (code[(pc + 1) as usize] as U4) << 8
                                     | code[(pc + 2) as usize] as U4;

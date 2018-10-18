@@ -7,11 +7,11 @@ pub struct JvmStack {
 
 pub struct Frame {
     // pub locals: Vec<Slot>,
-// pub operands: Vec<Slot>,
-// pub klass: std::sync::Arc<Klass>,
-// pub code: &[u8],
-// pub exception_handler: &[ExceptionHandler],
-// pub attributes: &Attributes,
-// pub method_name: &str,
-// pub descriptor: String,
+    // pub operands: Vec<Slot>,
+    // pub klass: std::sync::Arc<Klass>,
+    // pub code: &[u8],
+    // pub exception_handler: &[ExceptionHandler],
+    // pub attributes: &Attributes,
+    // pub method_name: &str,
+    // pub descriptor: String,
 }
