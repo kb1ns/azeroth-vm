@@ -41,11 +41,11 @@ impl Interpreter {
                 let klass = std::sync::Arc::new(klass);
                 let klass_1 = klass.clone();
                 let mut map = self.class_arena.classes.write().unwrap();
-                if let Ok(clinit) = &klass.bytecode.get_method("<clinit>", "()V") {
+                if let Ok(ref clinit) = klass.bytecode.get_method("<clinit>", "()V") {
                     self.call(&klass, clinit, vec![]);
                 }
                 map.insert(class_name.to_string(), klass);
-                if let Ok(method) = &klass_1.bytecode.get_method(method_name, method_descriptor) {
+                if let Ok(method) = klass_1.bytecode.get_method(method_name, method_descriptor) {
                     return self.call(&klass_1, method, args);
                 } else {
                     // TODO
@@ -228,11 +228,10 @@ impl Interpreter {
                         0x60 => {
                             if let Some(left) = operands.pop() {
                                 if let Some(right) = operands.pop() {
-                                    let v1 = left.view::<i32>();
-                                    let v2 = right.view::<i32>();
-                                    // let v1 = std::mem::transmute::<Slot, i32>(left);
-                                    // let v2 = std::mem::transmute::<Slot, i32>(right);
-                                    // operands.push(std::mem::transmute::<i32, Slot>(v1 + v2));
+                                    // TODO
+                                    let v1 = std::mem::transmute::<Slot, i32>(left);
+                                    let v2 = std::mem::transmute::<Slot, i32>(right);
+                                    operands.push(std::mem::transmute::<i32, Slot>(v1 + v2));
                                     operands.push((v1 + v2).memorized());
                                     pc = pc + 1;
                                     continue;
@@ -244,18 +243,15 @@ impl Interpreter {
                         0x84 => {
                             let index = code[(pc + 1) as usize] as usize;
                             let cst = code[(pc + 2) as usize] as i32;
-                            // let new = std::mem::transmute::<Slot, i32>(locals[index]) + cst;
-                            let new = locals[index].view::<i32>() + cst;
+                            let new = std::mem::transmute::<Slot, i32>(locals[index]) + cst;
                             locals[index] = new.memorized();
                             pc = pc + 3;
                         }
                         // if_icmpge
                         0xa2 => {
                             let size = operands.len();
-                            // let v1 = std::mem::transmute::<Slot, i32>(operands[size - 2]);
-                            // let v2 = std::mem::transmute::<Slot, i32>(operands[size - 1]);
-                            let v1 = (operands[size - 2]).view::<i32>();
-                            let v2 = (operands[size - 1]).view::<i32>();
+                            let v1 = std::mem::transmute::<Slot, i32>(operands[size - 2]);
+                            let v2 = std::mem::transmute::<Slot, i32>(operands[size - 1]);
                             if v1 >= v2 {
                                 pc = (code[(pc + 1) as usize] as U4) << 8
                                     | code[(pc + 2) as usize] as U4;
