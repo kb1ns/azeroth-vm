@@ -4,7 +4,7 @@ use std;
 pub struct ClassArena {
     pub cp: super::Classpath,
     // TODO allow a class been loaded by different classloader instances
-    pub classes: std::sync::RwLock<std::collections::BTreeMap<String, std::sync::Arc<Klass>>>,
+    pub classes: CHashMap<String, std::sync::Arc<Klass>>,
 }
 
 pub struct Klass {
@@ -29,7 +29,7 @@ impl ClassArena {
         }
         ClassArena {
             cp: cp,
-            classes: std::sync::RwLock::new(std::collections::BTreeMap::new()),
+            classes: CHashMap::new(),
         }
     }
 
@@ -60,8 +60,8 @@ impl ClassArena {
             .unwrap()
             .replace_all(class, "/")
             .into_owned();
-        let map = self.classes.read().unwrap();
-        match map.get(&class_name) {
+        // let map = self.classes.read().unwrap();
+        match self.classes.get(&class_name) {
             None => None,
             Some(ptr) => Some(ptr.clone()),
         }

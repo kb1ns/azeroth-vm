@@ -6,3 +6,5 @@ pub mod mem;
 #[macro_use]
 extern crate log;
 extern crate regex;
+extern crate remutex;
+extern crate chashmap;

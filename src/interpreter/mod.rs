@@ -32,13 +32,11 @@ pub struct FrameInfo {
 fn fire_exception(class: &str, method: &str, line: isize, message: &str) -> JavaError {
     JavaError {
         message: message.to_string(),
-        stacktrace: vec![
-            FrameInfo {
-                class: class.to_string(),
-                method: method.to_string(),
-                line: line,
-            },
-        ],
+        stacktrace: vec![FrameInfo {
+            class: class.to_string(),
+            method: method.to_string(),
+            line: line,
+        }],
     }
 }
 
@@ -73,8 +71,8 @@ impl Interpreter {
                         let name = class_name.to_string();
                         {
                             let klass = std::sync::Arc::new(klass);
-                            let mut map = self.class_arena.classes.write().unwrap();
                             // init class
+                            // TODO bug: <clinit> may be invoked twice
                             if let Some(ref clinit) = klass.bytecode.get_method("<clinit>", "()V") {
                                 if let Err(mut e) = self.call(&klass, clinit, vec![]) {
                                     e.stacktrace.push(FrameInfo {
@@ -85,7 +83,7 @@ impl Interpreter {
                                     return Err(e);
                                 }
                             }
-                            map.insert(class_name.to_string(), klass);
+                            self.class_arena.classes.insert_new(class_name.to_string(), klass);
                         }
                         match self.class_arena.find_class(&name) {
                             Some(k) => Ok(k),
@@ -332,11 +330,32 @@ impl Interpreter {
                             // TODO load class `c`, push `f` to operands according to the type `t`
                             let class = self.load_class(c)?;
                             if let Some(ref field) = class.bytecode.get_field(f, t) {
+                                match &field.value {
+                                    // non-static
+                                    None => {
+                                        panic!("");
+                                    }
+                                    Some(value) => match value {
+                                        Value::Word(v) => {
+                                            operands.push(*v);
+                                        }
+                                        Value::DWord(lower, higher) => {
+                                            operands.push(*higher);
+                                            operands.push(*lower);
+                                        }
+                                    },
+                                }
                             } else {
                                 // TODO
                                 return Err(fire_exception("", "", -1, "NoSuchFieldError"));
                             }
                             pc = pc + 3;
+                        }
+                        // putstatic
+                        0xb3 => {
+                            let field_idx = (code[(pc + 1) as usize] as U2) << 8
+                                | code[(pc + 2) as usize] as U2;
+
                         }
                         _ => {
                             panic!(format!(

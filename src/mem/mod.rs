@@ -1,6 +1,8 @@
 use super::bytecode::class::Class;
 use super::classpath::Classpath;
 use super::regex::Regex;
+use super::remutex::ReentrantMutex;
+use super::chashmap::CHashMap;
 use std;
 
 pub mod heap;

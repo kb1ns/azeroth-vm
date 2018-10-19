@@ -14,7 +14,7 @@ pub struct Field {
     pub name: String,
     pub descriptor: String,
     pub attributes: Vec<Attribute>,
-    pub value: Option<Value>,
+    pub value: std::cell::Cell<Option<Value>>,
 }
 
 impl Traveler<Fields> for Fields {
@@ -31,7 +31,7 @@ impl Traveler<Fields> for Fields {
     }
 }
 
-fn get_init_value(access_flag: u16, descriptor: &str) -> Option<Value> {
+fn init_value(access_flag: u16, descriptor: &str) -> Option<Value> {
     if access_flag & STATIC == STATIC {
         if descriptor == "D" || descriptor == "J" {
             Some(Value::DWord(NULL, NULL))
@@ -56,7 +56,7 @@ impl Traveler<Field> for Field {
             return Field {
                 access_flag: access_flag,
                 name: pool.get_str(name_idx).to_string(),
-                value: get_init_value(access_flag, &descriptor),
+                value: std::cell::Cell::new(None),
                 descriptor: descriptor,
                 attributes: Attributes::read(seq, Some(pool)),
             };
