@@ -4,6 +4,7 @@ use super::Value;
 use super::NULL;
 use bytecode::atom::*;
 use bytecode::attribute::*;
+use std;
 
 pub type Fields = Vec<Field>;
 

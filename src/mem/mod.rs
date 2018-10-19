@@ -1,7 +1,6 @@
 use super::bytecode::class::Class;
 use super::classpath::Classpath;
 use super::regex::Regex;
-use super::remutex::ReentrantMutex;
 use super::chashmap::CHashMap;
 use std;
 
@@ -19,6 +18,7 @@ pub type Slot = [u8; PTR_SIZE];
 pub type WideSlot = (Slot, Slot);
 pub type Word = [u8; PTR_SIZE];
 
+#[derive(Copy, Clone, Debug)]
 pub enum Value {
     Word(Word),
     DWord(Word, Word),

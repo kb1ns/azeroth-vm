@@ -10,6 +10,17 @@ pub struct ClassArena {
 pub struct Klass {
     pub bytecode: super::Class,
     pub classloader: Classloader,
+    pub initialized: std::sync::atomic::AtomicBool,
+}
+
+impl Klass {
+    fn new(bytecode: Class, classloader: Classloader) -> Klass {
+        Klass {
+            bytecode: bytecode,
+            classloader: classloader,
+            initialized: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
 }
 
 pub enum Classloader {
@@ -35,22 +46,13 @@ impl ClassArena {
 
     pub fn define_class(&self, class_name: &str, classloader: Classloader) -> Option<Klass> {
         if let Some(bytecode) = self.cp.find_bootstrap_class(class_name) {
-            return Some(Klass {
-                bytecode: super::Class::from_vec(bytecode),
-                classloader: classloader,
-            });
+            return Some(Klass::new(Class::from_vec(bytecode), classloader));
         }
         if let Some(bytecode) = self.cp.find_ext_class(class_name) {
-            return Some(Klass {
-                bytecode: super::Class::from_vec(bytecode),
-                classloader: classloader,
-            });
+            return Some(Klass::new(Class::from_vec(bytecode), classloader));
         }
         if let Some(bytecode) = self.cp.find_app_class(class_name) {
-            return Some(Klass {
-                bytecode: super::Class::from_vec(bytecode),
-                classloader: classloader,
-            });
+            return Some(Klass::new(Class::from_vec(bytecode), classloader));
         }
         None
     }
@@ -60,7 +62,6 @@ impl ClassArena {
             .unwrap()
             .replace_all(class, "/")
             .into_owned();
-        // let map = self.classes.read().unwrap();
         match self.classes.get(&class_name) {
             None => None,
             Some(ptr) => Some(ptr.clone()),

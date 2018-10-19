@@ -32,11 +32,13 @@ pub struct FrameInfo {
 fn fire_exception(class: &str, method: &str, line: isize, message: &str) -> JavaError {
     JavaError {
         message: message.to_string(),
-        stacktrace: vec![FrameInfo {
-            class: class.to_string(),
-            method: method.to_string(),
-            line: line,
-        }],
+        stacktrace: vec![
+            FrameInfo {
+                class: class.to_string(),
+                method: method.to_string(),
+                line: line,
+            },
+        ],
     }
 }
 
@@ -69,25 +71,31 @@ impl Interpreter {
                 match self.class_arena.define_class(class_name, Classloader::ROOT) {
                     Some(klass) => {
                         let name = class_name.to_string();
-                        {
-                            let klass = std::sync::Arc::new(klass);
-                            // init class
-                            // TODO bug: <clinit> may be invoked twice
-                            if let Some(ref clinit) = klass.bytecode.get_method("<clinit>", "()V") {
-                                if let Err(mut e) = self.call(&klass, clinit, vec![]) {
-                                    e.stacktrace.push(FrameInfo {
-                                        class: class_name.to_string(),
-                                        method: "".to_string(),
-                                        line: -1,
-                                    });
-                                    return Err(e);
-                                }
-                            }
-                            self.class_arena.classes.insert_new(class_name.to_string(), klass);
-                        }
+                        self.class_arena
+                            .classes
+                            .insert_new(class_name.to_string(), std::sync::Arc::new(klass));
                         match self.class_arena.find_class(&name) {
-                            Some(k) => Ok(k),
-                            // won't happen
+                            // init class
+                            Some(k) => {
+                                if !k.initialized.load(std::sync::atomic::Ordering::Relaxed) {
+                                    // init class
+                                    k.initialized
+                                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                                    if let Some(ref clinit) =
+                                        k.bytecode.get_method("<clinit>", "()V")
+                                    {
+                                        if let Err(mut e) = self.call(&k, clinit, vec![]) {
+                                            e.stacktrace.push(FrameInfo {
+                                                class: class_name.to_string(),
+                                                method: "".to_string(),
+                                                line: -1,
+                                            });
+                                            return Err(e);
+                                        }
+                                    }
+                                }
+                                Ok(k)
+                            }
                             None => Err(fire_exception(
                                 class_name,
                                 "",
@@ -330,7 +338,7 @@ impl Interpreter {
                             // TODO load class `c`, push `f` to operands according to the type `t`
                             let class = self.load_class(c)?;
                             if let Some(ref field) = class.bytecode.get_field(f, t) {
-                                match &field.value {
+                                match &field.value.get() {
                                     // non-static
                                     None => {
                                         panic!("");
@@ -355,7 +363,27 @@ impl Interpreter {
                         0xb3 => {
                             let field_idx = (code[(pc + 1) as usize] as U2) << 8
                                 | code[(pc + 2) as usize] as U2;
-
+                            let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
+                            // TODO load class `c`, push `f` to operands according to the type `t`
+                            let class = self.load_class(c)?;
+                            if let Some(ref field) = class.bytecode.get_field(f, t) {
+                                // TODO params validation
+                                if t == "D" || t == "J" {
+                                    if let Some(lower) = operands.pop() {
+                                        if let Some(higher) = operands.pop() {
+                                            &field.value.set(Some(Value::DWord(lower, higher)));
+                                        }
+                                    }
+                                } else {
+                                    if let Some(v) = operands.pop() {
+                                        &field.value.set(Some(Value::Word(v)));
+                                    }
+                                }
+                            } else {
+                                // TODO
+                                return Err(fire_exception("", "", -1, "NoSuchFieldError"));
+                            }
+                            pc = pc + 3;
                         }
                         _ => {
                             panic!(format!(
