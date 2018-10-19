@@ -11,6 +11,7 @@ pub struct Klass {
     pub bytecode: super::Class,
     pub classloader: Classloader,
     pub initialized: std::sync::atomic::AtomicBool,
+    pub mutex: std::sync::Mutex<u8>,
 }
 
 impl Klass {
@@ -19,6 +20,7 @@ impl Klass {
             bytecode: bytecode,
             classloader: classloader,
             initialized: std::sync::atomic::AtomicBool::new(false),
+            mutex: std::sync::Mutex::<u8>::new(0),
         }
     }
 }
@@ -44,7 +46,7 @@ impl ClassArena {
         }
     }
 
-    pub fn define_class(&self, class_name: &str, classloader: Classloader) -> Option<Klass> {
+    fn define_class(&self, class_name: &str, classloader: Classloader) -> Option<Klass> {
         if let Some(bytecode) = self.cp.find_bootstrap_class(class_name) {
             return Some(Klass::new(Class::from_vec(bytecode), classloader));
         }
@@ -63,7 +65,17 @@ impl ClassArena {
             .replace_all(class, "/")
             .into_owned();
         match self.classes.get(&class_name) {
-            None => None,
+            None => {
+                // TODO classloader
+                match self.define_class(&class_name, Classloader::ROOT) {
+                    None => None,
+                    Some(k) => {
+                        let klass = std::sync::Arc::new(k);
+                        self.classes.insert_new(class_name, klass.clone());
+                        Some(klass)
+                    }
+                }
+            },
             Some(ptr) => Some(ptr.clone()),
         }
     }

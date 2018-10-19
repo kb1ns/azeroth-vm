@@ -5,6 +5,7 @@ use super::bytecode::method::*;
 use super::mem::metaspace::*;
 use super::mem::*;
 use std;
+use std::sync::atomic::*;
 
 pub struct Interpreter {
     pub class_arena: std::sync::Arc<ClassArena>,
@@ -65,53 +66,31 @@ impl Interpreter {
 
     fn load_class(&self, class_name: &str) -> Result<std::sync::Arc<Klass>, JavaError> {
         match self.class_arena.find_class(class_name) {
-            Some(k) => Ok(k),
-            None => {
-                // TODO classloader
-                match self.class_arena.define_class(class_name, Classloader::ROOT) {
-                    Some(klass) => {
-                        let name = class_name.to_string();
-                        self.class_arena
-                            .classes
-                            .insert_new(class_name.to_string(), std::sync::Arc::new(klass));
-                        match self.class_arena.find_class(&name) {
-                            // init class
-                            Some(k) => {
-                                if !k.initialized.load(std::sync::atomic::Ordering::Relaxed) {
-                                    // init class
-                                    k.initialized
-                                        .store(true, std::sync::atomic::Ordering::Relaxed);
-                                    if let Some(ref clinit) =
-                                        k.bytecode.get_method("<clinit>", "()V")
-                                    {
-                                        if let Err(mut e) = self.call(&k, clinit, vec![]) {
-                                            e.stacktrace.push(FrameInfo {
-                                                class: class_name.to_string(),
-                                                method: "".to_string(),
-                                                line: -1,
-                                            });
-                                            return Err(e);
-                                        }
-                                    }
-                                }
-                                Ok(k)
+            Some(k) => {
+                if !k.initialized.load(Ordering::Relaxed) {
+                    // init class
+                    if let Ok(_) = k.mutex.try_lock() {
+                        k.initialized.store(true, Ordering::Relaxed);
+                        if let Some(ref clinit) = k.bytecode.get_method("<clinit>", "()V") {
+                            if let Err(mut e) = self.call(&k, clinit, vec![]) {
+                                e.stacktrace.push(FrameInfo {
+                                    class: class_name.to_string(),
+                                    method: "".to_string(),
+                                    line: -1,
+                                });
+                                return Err(e);
                             }
-                            None => Err(fire_exception(
-                                class_name,
-                                "",
-                                -1,
-                                "java.lang.ClassNotFoundException",
-                            )),
                         }
                     }
-                    None => Err(fire_exception(
-                        class_name,
-                        "",
-                        -1,
-                        "java.lang.ClassNotFoundException",
-                    )),
                 }
+                Ok(k)
             }
+            None => Err(fire_exception(
+                class_name,
+                "",
+                -1,
+                "java.lang.ClassNotFoundException",
+            )),
         }
     }
 
