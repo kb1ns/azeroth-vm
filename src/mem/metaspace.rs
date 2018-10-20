@@ -70,9 +70,13 @@ impl ClassArena {
                 match self.define_class(&class_name, Classloader::ROOT) {
                     None => None,
                     Some(k) => {
-                        let klass = std::sync::Arc::new(k);
-                        self.classes.insert_new(class_name, klass.clone());
-                        Some(klass)
+                        let name = class_name.clone();
+                        self.classes.insert_new(class_name, std::sync::Arc::new(k));
+                        // we can't return k.clone() directly
+                        match self.classes.get(&name) {
+                            None => panic!("won't happend"),
+                            Some(kwg) => Some(kwg.clone()),
+                        }
                     }
                 }
             },
