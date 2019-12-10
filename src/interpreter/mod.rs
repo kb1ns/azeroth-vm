@@ -7,10 +7,7 @@ use super::mem::*;
 use std;
 use std::sync::atomic::*;
 
-pub struct Interpreter {
-    pub class_arena: std::sync::Arc<ClassArena>,
-    // TODO heap
-}
+pub struct Interpreter;
 
 pub enum Return {
     Word(Slot),
@@ -33,13 +30,11 @@ pub struct FrameInfo {
 fn fire_exception(class: &str, method: &str, line: isize, message: &str) -> JavaError {
     JavaError {
         message: message.to_string(),
-        stacktrace: vec![
-            FrameInfo {
-                class: class.to_string(),
-                method: method.to_string(),
-                line: line,
-            },
-        ],
+        stacktrace: vec![FrameInfo {
+            class: class.to_string(),
+            method: method.to_string(),
+            line: line,
+        }],
     }
 }
 
@@ -65,33 +60,38 @@ impl Interpreter {
     }
 
     fn load_class(&self, class_name: &str) -> Result<std::sync::Arc<Klass>, JavaError> {
-        match self.class_arena.find_class(class_name) {
-            Some(k) => {
-                if !k.initialized.load(Ordering::Relaxed) {
-                    // init class
-                    if let Ok(_) = k.mutex.try_lock() {
-                        k.initialized.store(true, Ordering::Relaxed);
-                        if let Some(ref clinit) = k.bytecode.get_method("<clinit>", "()V") {
-                            if let Err(mut e) = self.call(&k, clinit, vec![]) {
-                                e.stacktrace.push(FrameInfo {
-                                    class: class_name.to_string(),
-                                    method: "".to_string(),
-                                    line: -1,
-                                });
-                                return Err(e);
+        unsafe {
+            if let Some(classes) = &metaspace::CLASSES {
+                return match classes.clone().find_class(class_name) {
+                    Some(k) => {
+                        if !k.initialized.load(Ordering::Relaxed) {
+                            // init class
+                            if let Ok(_) = k.mutex.try_lock() {
+                                k.initialized.store(true, Ordering::Relaxed);
+                                if let Some(ref clinit) = k.bytecode.get_method("<clinit>", "()V") {
+                                    if let Err(mut e) = self.call(&k, clinit, vec![]) {
+                                        e.stacktrace.push(FrameInfo {
+                                            class: class_name.to_string(),
+                                            method: "".to_string(),
+                                            line: -1,
+                                        });
+                                        return Err(e);
+                                    }
+                                }
                             }
                         }
+                        Ok(k)
                     }
-                }
-                Ok(k)
+                    None => Err(fire_exception(
+                        class_name,
+                        "",
+                        -1,
+                        "java.lang.ClassNotFoundException",
+                    )),
+                };
             }
-            None => Err(fire_exception(
-                class_name,
-                "",
-                -1,
-                "java.lang.ClassNotFoundException",
-            )),
         }
+        panic!("ClassArena not initialized.");
     }
 
     fn call(

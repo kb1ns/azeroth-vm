@@ -31,8 +31,10 @@ pub enum Classloader {
     APP(Word),
 }
 
+pub static mut CLASSES: Option<std::sync::Arc<ClassArena>> = None;
+
 impl ClassArena {
-    pub fn init(app_paths: Vec<String>, bootstrap_paths: Vec<String>) -> ClassArena {
+    pub fn init(app_paths: Vec<String>, bootstrap_paths: Vec<String>) {
         let mut cp = super::Classpath::init();
         for path in bootstrap_paths {
             cp.append_bootstrap_classpath(path);
@@ -40,9 +42,12 @@ impl ClassArena {
         for path in app_paths {
             cp.append_app_classpath(path);
         }
-        ClassArena {
-            cp: cp,
-            classes: CHashMap::new(),
+
+        unsafe {
+            CLASSES.replace(std::sync::Arc::new(ClassArena {
+                cp: cp,
+                classes: CHashMap::new(),
+            }));
         }
     }
 
@@ -79,7 +84,7 @@ impl ClassArena {
                         }
                     }
                 }
-            },
+            }
             Some(ptr) => Some(ptr.clone()),
         }
     }

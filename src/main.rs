@@ -68,12 +68,11 @@ fn resolve_user_classpath(user_classpath: &str) -> Vec<String> {
 fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
     let system_paths = resolve_system_classpath(java_home);
     let user_paths = resolve_user_classpath(user_classpath);
-    let class_arena = mem::metaspace::ClassArena::init(user_paths, system_paths);
+    mem::metaspace::ClassArena::init(user_paths, system_paths);
     // TODO allocate heap
     // TODO GC thread
-    let interpreter = interpreter::Interpreter {
-        class_arena: std::sync::Arc::new(class_arena),
-    };
+    let interpreter = interpreter::Interpreter;
+    // TODO allocate main thread stack to run main method
     // TODO args
     interpreter.execute(
         class_name,
