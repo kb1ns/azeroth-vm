@@ -39,18 +39,22 @@ fn resolve_system_classpath(java_home: &str) -> Vec<String> {
     java_home_dir.push("jre/lib");
     let mut paths = Vec::<String>::new();
     if let Ok(sysjars) = std::fs::read_dir(&java_home_dir) {
-        paths.append(&mut sysjars
-            .map(|f| f.unwrap().path())
-            .filter(|f| f.extension() == Some("jar".as_ref()))
-            .map(|f| f.to_str().unwrap().to_string())
-            .collect::<Vec<String>>());
-        java_home_dir.push("ext");
-        if let Ok(extjars) = std::fs::read_dir(&java_home_dir) {
-            paths.append(&mut extjars
+        paths.append(
+            &mut sysjars
                 .map(|f| f.unwrap().path())
                 .filter(|f| f.extension() == Some("jar".as_ref()))
                 .map(|f| f.to_str().unwrap().to_string())
-                .collect::<Vec<String>>());
+                .collect::<Vec<String>>(),
+        );
+        java_home_dir.push("ext");
+        if let Ok(extjars) = std::fs::read_dir(&java_home_dir) {
+            paths.append(
+                &mut extjars
+                    .map(|f| f.unwrap().path())
+                    .filter(|f| f.extension() == Some("jar".as_ref()))
+                    .map(|f| f.to_str().unwrap().to_string())
+                    .collect::<Vec<String>>(),
+            );
         }
         paths
     } else {
@@ -71,13 +75,27 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
     mem::metaspace::ClassArena::init(user_paths, system_paths);
     // TODO allocate heap
     // TODO GC thread
-    let interpreter = interpreter::Interpreter;
-    // TODO allocate main thread stack to run main method
     // TODO args
-    interpreter.execute(
-        class_name,
-        "main",
-        "([Ljava/lang/String;)V",
-        vec![mem::NULL],
-    );
+    let mut main_thread_stack = mem::stack::JavaStack::new();
+    let entry_class = unsafe {
+        if let Some(ref classes) = mem::metaspace::CLASSES {
+            classes.clone().find_class(class_name)
+        } else {
+            panic!("won't happend: ClassArena not initialized");
+        }
+    };
+    // TODO classs not found
+    let entry_class = entry_class.expect("ClassNotFoundException");
+
+    // execute clinit
+    if let Ok(_) = entry_class.clone().mutex.try_lock() {
+        entry_class.initialized.store(true, std::sync::atomic::Ordering::Relaxed);
+        let ref clinit = entry_class.bytecode.get_method("<clinit>", "()V").expect("clinit must exist");
+        let clinit = mem::stack::JavaFrame::new(entry_class.clone(), clinit);
+        interpreter::invoke(&mut main_thread_stack, clinit);
+    }
+
+    let ref main_method = entry_class.bytecode.get_method("main", "(Ljava/lang/String;)V").expect("Main method not found");
+    let main_method = mem::stack::JavaFrame::new(entry_class.clone(), main_method);
+    interpreter::invoke(&mut main_thread_stack, main_method);
 }
