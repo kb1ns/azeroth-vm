@@ -1,10 +1,8 @@
-use super::bytecode::method::*;
 use super::bytecode::*;
 use super::mem::metaspace::*;
 use super::mem::stack::*;
 use super::mem::*;
 use bytecode::atom::*;
-use bytecode::attribute::*;
 use std;
 use std::sync::atomic::*;
 use std::sync::Arc;
