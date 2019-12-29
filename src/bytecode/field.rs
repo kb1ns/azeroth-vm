@@ -4,9 +4,10 @@ use super::Value;
 use super::NULL;
 use bytecode::atom::*;
 use bytecode::attribute::*;
-use std;
+use std::cell::Cell;
+use std::sync::Arc;
 
-pub type Fields = Vec<Field>;
+pub type Fields = Vec<Arc<Field>>;
 
 const STATIC: u16 = 0x0008;
 
@@ -14,8 +15,8 @@ pub struct Field {
     pub access_flag: U2,
     pub name: String,
     pub descriptor: String,
-    pub attributes: Vec<Attribute>,
-    pub value: std::cell::Cell<Option<Value>>,
+    pub attributes: Attributes,
+    pub value: Cell<Option<Value>>,
 }
 
 impl Traveler<Fields> for Fields {
@@ -24,9 +25,9 @@ impl Traveler<Fields> for Fields {
         I: Iterator<Item = u8>,
     {
         let size = U2::read(seq, None);
-        let mut fields = Vec::<Field>::with_capacity(size as usize);
+        let mut fields = Vec::<Arc<Field>>::with_capacity(size as usize);
         for _x in 0..size {
-            fields.push(Field::read(seq, constants));
+            fields.push(Arc::new(Field::read(seq, constants)));
         }
         fields
     }
@@ -57,7 +58,7 @@ impl Traveler<Field> for Field {
             return Field {
                 access_flag: access_flag,
                 name: pool.get_str(name_idx).to_string(),
-                value: std::cell::Cell::new(None),
+                value: Cell::new(None),
                 descriptor: descriptor,
                 attributes: Attributes::read(seq, Some(pool)),
             };

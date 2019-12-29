@@ -3,53 +3,83 @@ use bytecode::attribute::ExceptionHandler;
 use bytecode::method::Method;
 use mem::metaspace::Klass;
 use mem::Slot;
+use mem::NULL;
 use std::sync::Arc;
 
-pub struct JavaStack<'a> {
+pub struct JavaStack {
     // thread
-    pub frames: Vec<JavaFrame<'a>>,
+    pub frames: Vec<JavaFrame>,
     pub max_stack_size: usize,
     pub pc: u32,
 }
 
-impl<'a> JavaStack<'a> {
+impl JavaStack {
     // TODO
-    pub fn new() -> JavaStack<'a> {
+    pub fn new() -> JavaStack {
         JavaStack {
-            frames: Vec::<JavaFrame<'a>>::new(),
+            frames: Vec::<JavaFrame>::new(),
             max_stack_size: 0,
             pc: 0,
         }
     }
+
+    pub fn top(&self) -> Option<&JavaFrame> {
+        match self.frames.len() {
+            0 => None,
+            n => Some(&self.frames[n - 1]),
+        }
+    }
+
+    pub fn top_mut(&mut self) -> Option<&mut JavaFrame> {
+        match self.frames.len() {
+            0 => None,
+            n => Some(&mut self.frames[n - 1]),
+        }
+    }
 }
 
-pub struct JavaFrame<'class> {
+pub struct JavaFrame {
     pub locals: Vec<Slot>,
     pub operands: Vec<Slot>,
     pub klass: Arc<Klass>,
-    pub code: &'class [u8],
-    pub exception_handlers: &'class [ExceptionHandler],
+    pub code: Arc<Vec<u8>>,
+    pub exception_handlers: Arc<Vec<ExceptionHandler>>,
     // pub attributes: &'class Attributes,
-    // pub class_name: &'class str,
-    // pub method_name: &'class str,
-    // pub descriptor: &'class str,
+    pub current_method: (String, String),
 }
 
-impl<'c> JavaFrame<'c> {
-    pub fn new(class: Arc<Klass>, method: &'c Method) -> JavaFrame {
-        if let Some(Attribute::Code(stacks, locals, ref code, ref exception_handlers, _)) =
-            method.get_code()
-        {
+impl JavaFrame {
+    pub fn new(class: Arc<Klass>, method: Arc<Method>) -> JavaFrame {
+        let code_attribute = method
+            .get_code()
+            .expect("abstract method or interface not allowed");
+        if let Attribute::Code(stacks, locals, ref code, ref exception, _) = code_attribute {
+            let mut locals = Vec::<Slot>::with_capacity(locals as usize);
+            for _i in 0..locals.capacity() {
+                locals.push(NULL);
+            }
             return JavaFrame {
-                locals: Vec::<Slot>::with_capacity(*locals as usize),
-                operands: Vec::<Slot>::with_capacity(*stacks as usize),
+                locals: locals,
+                operands: Vec::<Slot>::with_capacity(stacks as usize),
                 klass: class,
-                code: code,
-                exception_handlers: exception_handlers,
+                code: Arc::clone(code),
+                exception_handlers: Arc::clone(exception),
+                current_method: method.get_name_and_descriptor(),
             };
         }
-        panic!("Won't happend: abstract method or interface");
+        panic!("won't happend");
     }
 
-    pub fn dump(&self) {}
+    // TODO
+    pub fn dump(&self, pc: usize) {
+        println!("current class: {:?}", self.klass.bytecode.get_name());
+        println!(
+            "current method: {:?} {:?}",
+            self.current_method.0, self.current_method.1
+        );
+        println!("locals: {:x?}", self.locals);
+        println!("stacks: {:x?}", self.operands);
+        println!("pc: {:?}", pc);
+        println!("instructions: {:x?}\n", &self.code);
+    }
 }

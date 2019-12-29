@@ -1,10 +1,11 @@
-
 use super::constant_pool::ConstantPool;
 use super::Traveler;
 use bytecode::atom::*;
 use bytecode::attribute::*;
 
-pub type Methods = Vec<Method>;
+use std::sync::Arc;
+
+pub type Methods = Vec<Arc<Method>>;
 
 pub struct Method {
     pub access_flag: U2,
@@ -32,13 +33,28 @@ impl Traveler<Method> for Method {
 }
 
 impl Method {
-    pub fn get_code(&self) -> Option<&Attribute> {
+    pub fn get_code(&self) -> Option<Attribute> {
         for attr in &self.attributes {
-            if let &Attribute::Code(_, _, _, _, _) = attr {
-                return Some(attr);
+            match attr {
+                Attribute::Code(stacks, locals, code, exception, attribute) => {
+                    return Some(Attribute::Code(
+                        *stacks,
+                        *locals,
+                        Arc::clone(code),
+                        Arc::clone(exception),
+                        Arc::clone(attribute),
+                    ));
+                }
+                _ => {
+                    continue;
+                }
             }
         }
         return None;
+    }
+
+    pub fn get_name_and_descriptor(&self) -> (String, String) {
+        (self.name.clone(), self.descriptor.clone())
     }
 }
 
@@ -48,9 +64,9 @@ impl Traveler<Methods> for Methods {
         I: Iterator<Item = u8>,
     {
         let size = U2::read(seq, None);
-        let mut methods = Vec::<Method>::with_capacity(size as usize);
+        let mut methods = Vec::<Arc<Method>>::with_capacity(size as usize);
         for _x in 0..size {
-            methods.push(Method::read(seq, constants));
+            methods.push(Arc::new(Method::read(seq, constants)));
         }
         methods
     }

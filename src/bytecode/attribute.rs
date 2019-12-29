@@ -2,6 +2,7 @@
 use super::constant_pool::ConstantPool;
 use super::Traveler;
 use bytecode::atom::*;
+use std::sync::Arc;
 
 pub type Attributes = Vec<Attribute>;
 
@@ -13,11 +14,11 @@ pub struct ExceptionHandler {
 }
 
 pub enum Attribute {
-    ConstantValue(Vec<U1>),
-    Code(U2, U2, Vec<u8>, Vec<ExceptionHandler>, Attributes),
-    StackMapTable(Vec<U1>),
-    Exceptions(Vec<U1>),
-    BootstrapMethods(Vec<U1>),
+    ConstantValue(Arc<Vec<U1>>),
+    Code(U2, U2, Arc<Vec<u8>>, Arc<Vec<ExceptionHandler>>, Arc<Attributes>),
+    StackMapTable(Arc<Vec<U1>>),
+    Exceptions(Arc<Vec<U1>>),
+    BootstrapMethods(Arc<Vec<U1>>),
     // above for JVM
     InnerClasses(Vec<U1>),
     EnclosingMethod(Vec<U1>),
@@ -107,9 +108,9 @@ impl Traveler<Attribute> for Attribute {
                     return Attribute::Code(
                         max_stacks,
                         max_locals,
-                        code,
-                        exception_handlers,
-                        Attributes::read(seq, Some(pool)),
+                        Arc::new(code),
+                        Arc::new(exception_handlers),
+                        Arc::new(Attributes::read(seq, Some(pool))),
                     );
                 }
                 _ => {
@@ -117,7 +118,7 @@ impl Traveler<Attribute> for Attribute {
                     for _x in 0..length {
                         content.push(U1::read(seq, None));
                     }
-                    return Attribute::ConstantValue(content);
+                    return Attribute::ConstantValue(Arc::new(content));
                 }
             }
         }

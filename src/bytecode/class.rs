@@ -6,6 +6,8 @@ use bytecode::interface::*;
 use bytecode::method::*;
 use bytecode::*;
 
+use std::sync::Arc;
+
 pub struct Class {
     pub constant_pool: ConstantPool,
     access_flag: U2,
@@ -45,21 +47,25 @@ impl Class {
         }
     }
 
-    pub fn get_method(&self, method_name: &str, method_descriptor: &str) -> Option<&Method> {
-        for m in &self.methods {
+    pub fn get_method(&self, method_name: &str, method_descriptor: &str) -> Option<Arc<Method>> {
+        for ref m in &self.methods {
             if m.name == method_name && m.descriptor == method_descriptor {
-                return Some(&m);
+                return Some(Arc::clone(m));
             }
         }
         None
     }
 
-    pub fn get_field(&self, field_name: &str, field_descriptor: &str) -> Option<&Field> {
-        for f in &self.fields {
+    pub fn get_field(&self, field_name: &str, field_descriptor: &str) -> Option<Arc<Field>> {
+        for ref f in &self.fields {
             if f.name == field_name && f.descriptor == field_descriptor {
-                return Some(&f)
+                return Some(Arc::clone(f))
             }
         }
         None
+    }
+
+    pub fn get_name(&self) -> String {
+        self.this_class_name.clone()
     }
 }
