@@ -6,7 +6,9 @@ pub mod field;
 pub mod interface;
 pub mod method;
 
-use self::constant_pool::ConstantPool;
+use bytecode::constant_pool::ConstantPool;
+use bytecode::atom::*;
+
 use super::mem::*;
 
 trait Traveler<T> {
@@ -25,3 +27,5 @@ pub const JVM_SHORT: char = 'S';
 pub const JVM_BOOLEAN: char = 'Z';
 pub const JVM_REF: char = 'L';
 pub const JVM_ARRAY: char = '[';
+
+pub const METHOD_ACC_STATIC: U2 = 0x0008;

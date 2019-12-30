@@ -53,8 +53,8 @@ impl Method {
         return None;
     }
 
-    pub fn get_name_and_descriptor(&self) -> (String, String) {
-        (self.name.clone(), self.descriptor.clone())
+    pub fn get_name_and_descriptor(&self) -> (String, String, U2) {
+        (self.name.clone(), self.descriptor.clone(), self.access_flag)
     }
 }
 

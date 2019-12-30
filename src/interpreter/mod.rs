@@ -26,7 +26,7 @@ fn fire_exception(class: &str, method: &str, line: isize, message: &str) -> Java
     }
 }
 
-fn find_and_init_class(stack: &mut JavaStack, class_name: &str) -> Arc<Klass> {
+fn find_and_init_class(stack: &mut JavaStack, pc: usize, class_name: &str) -> (Arc<Klass>, bool) {
     let class = unsafe {
         if let Some(ref classes) = metaspace::CLASSES {
             classes.clone().find_class(class_name)
@@ -40,232 +40,243 @@ fn find_and_init_class(stack: &mut JavaStack, class_name: &str) -> Arc<Klass> {
         if let Ok(_) = class.mutex.try_lock() {
             class.initialized.store(true, Ordering::Relaxed);
             let clinit = class
-                .clone()
                 .bytecode
                 .get_method("<clinit>", "()V")
                 .expect("clinit must exist");
-            let frame = stack::JavaFrame::new(class.clone(), clinit);
-            invoke(stack, frame);
+
+            let frame = JavaFrame::new(class.clone(), clinit);
+            stack.push(frame, pc);
+            return (class.clone(), false);
         }
     }
-    class
+    (class, true)
 }
 
-pub fn invoke(stack: &mut JavaStack, current: JavaFrame) -> Result<Return, JavaError> {
-    stack.frames.push(current);
-    let mut pc: U4 = 0;
-    let code_len = &stack.top().expect("Won't happend").code.len();
-    while pc < *code_len as U4 {
-        unsafe {
-            let instruction = {
-                let current = &stack.top().expect("Won't happend");
-                current.dump(pc as usize);
-                current.code[pc as usize]
-            };
-            match instruction {
-                // nop
-                0x00 => {
+pub fn execute(stack: &mut JavaStack) {
+    if stack.is_empty() {
+        return;
+    }
+    let mut pc: usize = stack.top().expect("Won't happend").pc;
+    while stack.has_next(pc) {
+        let instruction = {
+            let current = &stack.top().expect("Won't happend");
+            // TODO if debug
+            current.dump(pc);
+            current.code[pc]
+        };
+        match instruction {
+            // nop
+            0x00 => {
+                pc = pc + 1;
+            }
+            // aconst_null
+            0x01 => {
+                let frame = &mut stack.top_mut().expect("Won't happend");
+                frame.operands.push(NULL);
+                pc = pc + 1;
+            }
+            // iconst -1 ~ 5
+            0x02..=0x08 => {
+                let frame = &mut stack.top_mut().expect("Won't happend");
+                let opr = frame.code[pc] as i32 - 3;
+                frame.operands.push(opr.memorized());
+                pc = pc + 1;
+            }
+            // lconst 0 ~ 1
+            // byteorder: higher first
+            0x09..=0x0a => {
+                let frame = &mut stack.top_mut().expect("Won't happend");
+                let opr = frame.code[pc] as i64 - 9;
+                let (lower, higher) = opr.memorized();
+                frame.operands.push(higher);
+                frame.operands.push(lower);
+                pc = pc + 1;
+            }
+            // fconst 0 ~ 2
+            0x0b..=0x0d => {
+                let frame = &mut stack.top_mut().expect("Won't happend");
+                let opr = frame.code[pc] as f32 - 11.0;
+                frame.operands.push(opr.memorized());
+                pc = pc + 1;
+            }
+            // dconst 0 ~ 1
+            0x0e..=0x0f => {
+                let frame = &mut stack.top_mut().expect("Won't happend");
+                let opr = frame.code[pc] as f64 - 14.0;
+                let (lower, higher) = opr.memorized();
+                frame.operands.push(higher);
+                frame.operands.push(lower);
+                pc = pc + 1;
+            }
+            // bipush
+            0x10 => {
+                let frame = &mut stack.top_mut().expect("Won't happend");
+                frame.operands.push((frame.code[pc + 1] as i32).memorized());
+                pc = pc + 2;
+            }
+            // sipush
+            0x11 => {
+                let frame = &mut stack.top_mut().expect("Won't happend");
+                frame.operands.push(
+                    ((frame.code[pc + 1] as i32) << 8 | (frame.code[pc + 2] as i32)).memorized(),
+                );
+                pc = pc + 3;
+            }
+            // iload 0 ~ 3
+            0x1a..=0x1d => {
+                let frame = &mut stack.top_mut().expect("Won't happend");
+                let opr = frame.code[pc] as usize - 0x1a;
+                frame.operands.push(frame.locals[opr]);
+                pc = pc + 1;
+            }
+            // istore 0 ~ 3
+            0x3b..=0x3e => {
+                let frame = &mut stack.top_mut().expect("Won't happend");
+                if let Some(i) = frame.operands.pop() {
+                    let opr = frame.code[pc] as usize - 0x3b;
+                    frame.locals[opr] = i;
                     pc = pc + 1;
-                }
-                // aconst_null
-                0x01 => {
-                    let frame = &mut stack.top_mut().expect("Won't happend");
-                    frame.operands.push(NULL);
-                    pc = pc + 1;
-                }
-                // iconst -1 ~ 5
-                0x02..=0x08 => {
-                    let frame = &mut stack.top_mut().expect("Won't happend");
-                    let opr = frame.code[pc as usize] as i32 - 3;
-                    frame.operands.push(opr.memorized());
-                    pc = pc + 1;
-                }
-                // lconst 0 ~ 1
-                // byteorder: higher first
-                0x09..=0x0a => {
-                    let frame = &mut stack.top_mut().expect("Won't happend");
-                    let opr = frame.code[pc as usize] as i64 - 9;
-                    let (lower, higher) = opr.memorized();
-                    frame.operands.push(higher);
-                    frame.operands.push(lower);
-                    pc = pc + 1;
-                }
-                // fconst 0 ~ 2
-                0x0b..=0x0d => {
-                    let frame = &mut stack.top_mut().expect("Won't happend");
-                    let opr = frame.code[pc as usize] as f32 - 11.0;
-                    frame.operands.push(opr.memorized());
-                    pc = pc + 1;
-                }
-                // dconst 0 ~ 1
-                0x0e..=0x0f => {
-                    let frame = &mut stack.top_mut().expect("Won't happend");
-                    let opr = frame.code[pc as usize] as f64 - 14.0;
-                    let (lower, higher) = opr.memorized();
-                    frame.operands.push(higher);
-                    frame.operands.push(lower);
-                    pc = pc + 1;
-                }
-                // bipush
-                0x10 => {
-                    let frame = &mut stack.top_mut().expect("Won't happend");
-                    frame
-                        .operands
-                        .push((frame.code[(pc + 1) as usize] as i32).memorized());
-                    pc = pc + 2;
-                }
-                // sipush
-                0x11 => {
-                    let frame = &mut stack.top_mut().expect("Won't happend");
-                    frame.operands.push(
-                        ((frame.code[(pc + 1) as usize] as i32) << 8
-                            | (frame.code[(pc + 2) as usize] as i32))
-                            .memorized(),
-                    );
-                    pc = pc + 3;
-                }
-                // iload 0 ~ 3
-                0x1a..=0x1d => {
-                    let frame = &mut stack.top_mut().expect("Won't happend");
-                    let opr = frame.code[pc as usize] as usize - 0x1a;
-                    frame.operands.push(frame.locals[opr]);
-                    pc = pc + 1;
-                }
-                // istore 0 ~ 3
-                0x3b..=0x3e => {
-                    let frame = &mut stack.top_mut().expect("Won't happend");
-                    if let Some(i) = frame.operands.pop() {
-                        let opr = frame.code[pc as usize] as usize - 0x3b;
-                        frame.locals[opr] = i;
-                        pc = pc + 1;
-                    } else {
-                        panic!("invalid frame: locals");
-                    }
-                }
-                // iadd
-                0x60 => {
-                    let frame = &mut stack.top_mut().expect("Won't happend");
-                    if let Some(left) = frame.operands.pop() {
-                        if let Some(right) = frame.operands.pop() {
-                            // TODO
-                            let v1 = std::mem::transmute::<Slot, i32>(left);
-                            let v2 = std::mem::transmute::<Slot, i32>(right);
-                            frame
-                                .operands
-                                .push(std::mem::transmute::<i32, Slot>(v1 + v2));
-                            frame.operands.push((v1 + v2).memorized());
-                            pc = pc + 1;
-                            continue;
-                        }
-                    }
+                } else {
                     panic!("invalid frame: locals");
                 }
-                // iinc
-                0x84 => {
-                    let frame = &mut stack.top_mut().expect("Won't happend");
-                    let index = frame.code[(pc + 1) as usize] as usize;
-                    let cst = frame.code[(pc + 2) as usize] as i32;
-                    let new = std::mem::transmute::<Slot, i32>(frame.locals[index]) + cst;
-                    frame.locals[index] = new.memorized();
-                    pc = pc + 3;
-                }
-                // if_icmpge
-                0xa2 => {
-                    let frame = &mut stack.top_mut().expect("Won't happend");
-                    let size = frame.operands.len();
-                    let v1 = std::mem::transmute::<Slot, i32>(frame.operands[size - 2]);
-                    let v2 = std::mem::transmute::<Slot, i32>(frame.operands[size - 1]);
-                    if v1 >= v2 {
-                        pc = (frame.code[(pc + 1) as usize] as U4) << 8
-                            | frame.code[(pc + 2) as usize] as U4;
-                    } else {
-                        pc = pc + 3;
+            }
+            // iadd
+            0x60 => {
+                let frame = &mut stack.top_mut().expect("Won't happend");
+                if let Some(left) = frame.operands.pop() {
+                    if let Some(right) = frame.operands.pop() {
+                        let (v1, v2) = unsafe {
+                            (
+                                std::mem::transmute::<Slot, i32>(left),
+                                std::mem::transmute::<Slot, i32>(right),
+                            )
+                        };
+                        frame.operands.push((v1 + v2).memorized());
+                        pc = pc + 1;
+                        continue;
                     }
                 }
-                // goto
-                0xa7 => {
-                    let frame = &mut stack.top_mut().expect("Won't happend");
-                    pc = (frame.code[(pc + 1) as usize] as U4) << 8
-                        | frame.code[(pc + 2) as usize] as U4;
+                panic!("invalid frame: locals");
+            }
+            // iinc
+            0x84 => {
+                let frame = &mut stack.top_mut().expect("Won't happend");
+                let index = frame.code[pc + 1] as usize;
+                let cst = frame.code[pc + 2] as i32;
+                let new = unsafe { std::mem::transmute::<Slot, i32>(frame.locals[index]) + cst };
+                frame.locals[index] = new.memorized();
+                pc = pc + 3;
+            }
+            // if_icmpge
+            0xa2 => {
+                let frame = &mut stack.top_mut().expect("Won't happend");
+                let size = frame.operands.len();
+                let (v1, v2) = unsafe {
+                    (
+                        std::mem::transmute::<Slot, i32>(frame.operands[size - 2]),
+                        std::mem::transmute::<Slot, i32>(frame.operands[size - 1]),
+                    )
+                };
+                if v1 >= v2 {
+                    pc = ((frame.code[pc + 1] as U4) << 8 | frame.code[pc + 2] as U4) as usize;
+                } else {
+                    pc = pc + 3;
                 }
-                0xb1 => {
-                    return Ok(Return::Void);
+            }
+            // goto
+            0xa7 => {
+                let frame = stack.top().expect("Won't happend");
+                pc = ((frame.code[pc + 1] as U4) << 8 | frame.code[pc + 2] as U4) as usize;
+            }
+            0xb1 => {
+                pc = stack.pop();
+            }
+            // getstatic
+            0xb2 => {
+                let frame = &stack.top().expect("Won't happend");
+                let field_idx = (frame.code[pc + 1] as U2) << 8 | frame.code[pc + 2] as U2;
+                let klass = frame.klass.clone();
+                let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
+                // TODO load class `c`, push `f` to operands according to the type `t`
+                let (klass, initialized) = find_and_init_class(stack, pc, c);
+                if !initialized {
+                    continue;
                 }
-                // getstatic
-                0xb2 => {
-                    let frame = &stack.top().expect("Won't happend");
-                    let field_idx = (frame.code[(pc + 1) as usize] as U2) << 8
-                        | frame.code[(pc + 2) as usize] as U2;
-                    let klass = frame.klass.clone();
-                    let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
-                    // TODO load class `c`, push `f` to operands according to the type `t`
-                    let class = find_and_init_class(stack, c);
-                    let frame = &mut stack.top_mut().expect("Won't happend");
-                    if let Some(ref field) = class.bytecode.get_field(f, t) {
-                        match &field.value.get() {
-                            None => {
-                                panic!("");
-                            }
-                            Some(value) => match value {
-                                Value::Word(v) => {
-                                    frame.operands.push(*v);
-                                }
-                                Value::DWord(lower, higher) => {
-                                    frame.operands.push(*higher);
-                                    frame.operands.push(*lower);
-                                }
-                            },
+                let frame = &mut stack.top_mut().expect("Won't happend");
+                if let Some(ref field) = klass.bytecode.get_field(f, t) {
+                    match &field.value.get() {
+                        None => {
+                            panic!("");
                         }
-                    } else {
-                        // TODO
-                        return Err(fire_exception("", "", -1, "NoSuchFieldError"));
+                        Some(value) => match value {
+                            Value::Word(v) => {
+                                frame.operands.push(*v);
+                            }
+                            Value::DWord(lower, higher) => {
+                                frame.operands.push(*higher);
+                                frame.operands.push(*lower);
+                            }
+                        },
                     }
-                    pc = pc + 3;
+                } else {
+                    // TODO
+                    // return Err(fire_exception("", "", -1, "NoSuchFieldError"));
                 }
-                // putstatic
-                0xb3 => {
-                    let frame = &stack.top().expect("Won't happend");
-                    let field_idx = (frame.code[(pc + 1) as usize] as U2) << 8
-                        | frame.code[(pc + 2) as usize] as U2;
-                    let klass = frame.klass.clone();
-                    let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
-                    // TODO load class `c`, push `f` to operands according to the type `t`
-                    let class = find_and_init_class(stack, c);
-                    let frame = &mut stack.top_mut().expect("Won't happend");
-                    if let Some(ref field) = class.bytecode.get_field(f, t) {
-                        match t {
-                            "D" | "J" => {
-                                let lower = frame.operands.pop().expect("Illegal locals: ");
-                                let higher = frame.operands.pop().expect("Illegal locals: ");
-                                &field.value.set(Some(Value::DWord(lower, higher)));
-                            }
-                            _ => {
-                                let v = frame.operands.pop().expect("Illegal locals: ");
-                                &field.value.set(Some(Value::Word(v)));
-                            }
+                pc = pc + 3;
+            }
+            // putstatic
+            0xb3 => {
+                let frame = &stack.top_mut().expect("Won't happend");
+                let field_idx = (frame.code[pc + 1] as U2) << 8 | frame.code[pc + 2] as U2;
+                let klass = frame.klass.clone();
+                let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
+                // TODO load class `c`, push `f` to operands according to the type `t`
+                let (klass, initialized) = find_and_init_class(stack, pc, c);
+                if !initialized {
+                    continue;
+                }
+                let frame = &mut stack.top_mut().expect("Won't happend");
+                if let Some(ref field) = klass.bytecode.get_field(f, t) {
+                    match t {
+                        "D" | "J" => {
+                            let lower = frame.operands.pop().expect("Illegal locals: ");
+                            let higher = frame.operands.pop().expect("Illegal locals: ");
+                            &field.value.set(Some(Value::DWord(lower, higher)));
                         }
-                    } else {
-                        // TODO
-                        return Err(fire_exception("", "", -1, "NoSuchFieldError"));
+                        _ => {
+                            let v = frame.operands.pop().expect("Illegal locals: ");
+                            &field.value.set(Some(Value::Word(v)));
+                        }
                     }
-                    pc = pc + 3;
+                } else {
+                    // TODO
+                    // return Err(fire_exception("", "", -1, "NoSuchFieldError"));
                 }
-                // invokestatic
-                // 0xb8 => {
-                    // let method_idx =
-                    //     (code[(pc + 1) as usize] as U2) << 8 | code[(pc + 2) as usize] as U2;
-                    // let class = load_class(c)?;
-                    // let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
-                    // if let Some(ref method) = class.bytecode.get_method(m, t) {}
-                // }
-                _ => {
-                    panic!("Instruction not implemented yet");
-                }
+                pc = pc + 3;
+            }
+            // invokestatic
+            // 0xb8 => {
+            //     let frame = &stack.top_mut().expect("Won't happend");
+            //     let method_idx =
+            //         (frame.code[(pc + 1) as usize] as U2) << 8 | frame.code[(pc + 2) as usize] as U2;
+            //     let klass = frame.klass.clone();
+            //     let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
+            //     let klass = find_and_init_class(stack, c);
+            //     if let Some(ref method) = klass.bytecode.get_method(m, t) {
+
+            //     } else {
+            //         // TODO
+            //         return Err(fire_exception("", "", -1, "NoSuchMethodError"));
+            //     }
+            // }
+            _ => {
+                panic!(format!(
+                    "Instruction {:?} not implemented yet.",
+                    instruction
+                ));
             }
         }
     }
-    stack.frames.pop();
-    Ok(Return::Void)
 }
 
 pub fn resolve_method_descriptor(descriptor: &str) -> (Vec<String>, String) {
@@ -283,6 +294,7 @@ pub fn resolve_method_descriptor(descriptor: &str) -> (Vec<String>, String) {
             token.push(ch);
             if ch == ';' {
                 expect_semicolon = false;
+                expect_type = false;
                 params.push(token.clone());
                 token.clear();
             }
@@ -340,4 +352,7 @@ pub fn test_resolve_method() {
     let (params, ret) = resolve_method_descriptor("([IJLjava/lang/String;)[Ljava/lang/String;");
     assert_eq!(ret, "[Ljava/lang/String;");
     assert_eq!(params, vec!["[I", "J", "Ljava/lang/String;"]);
+    let (params, ret) = resolve_method_descriptor("([Ljava/lang/String;)V");
+    assert_eq!(params, vec!["[Ljava/lang/String;"]);
+    assert_eq!(ret, "V");
 }
