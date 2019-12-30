@@ -251,15 +251,15 @@ pub fn invoke(stack: &mut JavaStack, current: JavaFrame) -> Result<Return, JavaE
                     pc = pc + 3;
                 }
                 // invokestatic
-                0xb8 => {
+                // 0xb8 => {
                     // let method_idx =
                     //     (code[(pc + 1) as usize] as U2) << 8 | code[(pc + 2) as usize] as U2;
                     // let class = load_class(c)?;
                     // let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
                     // if let Some(ref method) = class.bytecode.get_method(m, t) {}
-                }
+                // }
                 _ => {
-                    pc = pc + 1;
+                    panic!("Instruction not implemented yet");
                 }
             }
         }
