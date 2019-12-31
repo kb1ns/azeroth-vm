@@ -16,16 +16,11 @@ pub enum Return {
 pub struct JavaError {
     // TODO exception class
     pub message: String,
-    pub stacktrace: Vec<String>,
+    pub line: i32,
+    pub error_class: String,
 }
 
-fn fire_exception(class: &str, method: &str, line: isize, message: &str) -> JavaError {
-    JavaError {
-        message: message.to_string(),
-        stacktrace: vec![],
-    }
-}
-
+// TODO
 fn find_and_init_class(stack: &mut JavaStack, pc: usize, class_name: &str) -> (Arc<Klass>, bool) {
     let class = unsafe {
         if let Some(ref classes) = metaspace::CLASSES {
@@ -283,6 +278,11 @@ pub fn execute(stack: &mut JavaStack) {
             }
         }
     }
+}
+
+// TODO
+fn handle_exception(stack: &mut JavaStack, throwable: String, pc: usize) -> usize {
+    pc
 }
 
 pub fn resolve_method_descriptor(descriptor: &str) -> (Vec<String>, String) {
