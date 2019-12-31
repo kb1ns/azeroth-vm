@@ -38,15 +38,16 @@ fn find_and_init_class(stack: &mut JavaStack, pc: usize, class_name: &str) -> (A
     let class = class.expect("ClassNotFoundException");
     if !class.initialized.load(Ordering::Relaxed) {
         if let Ok(_) = class.mutex.try_lock() {
-            class.initialized.store(true, Ordering::Relaxed);
-            let clinit = class
-                .bytecode
-                .get_method("<clinit>", "()V")
-                .expect("clinit must exist");
-
-            let frame = JavaFrame::new(class.clone(), clinit);
-            stack.push(frame, pc);
-            return (class.clone(), false);
+            if !class.initialized.load(Ordering::Relaxed) {
+                class.initialized.store(true, Ordering::Relaxed);
+                let clinit = class
+                    .bytecode
+                    .get_method("<clinit>", "()V")
+                    .expect("clinit must exist");
+                let frame = JavaFrame::new(class.clone(), clinit);
+                stack.push(frame, pc);
+                return (class.clone(), false);
+            }
         }
     }
     (class, true)
@@ -170,15 +171,19 @@ pub fn execute(stack: &mut JavaStack) {
             // if_icmpge
             0xa2 => {
                 let frame = &mut stack.top_mut().expect("Won't happend");
-                let size = frame.operands.len();
                 let (v1, v2) = unsafe {
-                    (
-                        std::mem::transmute::<Slot, i32>(frame.operands[size - 2]),
-                        std::mem::transmute::<Slot, i32>(frame.operands[size - 1]),
-                    )
+                    let v2 = std::mem::transmute::<Slot, i32>(
+                        frame.operands.pop().expect("Illegal stack: "),
+                    );
+                    let v1 = std::mem::transmute::<Slot, i32>(
+                        frame.operands.pop().expect("Illegal stack: "),
+                    );
+                    (v1, v2)
                 };
                 if v1 >= v2 {
-                    pc = ((frame.code[pc + 1] as U4) << 8 | frame.code[pc + 2] as U4) as usize;
+                    let offset =
+                        ((frame.code[pc + 1] as i16) << 8 | frame.code[pc + 2] as i16) as isize;
+                    pc = (pc as isize + offset) as usize;
                 } else {
                     pc = pc + 3;
                 }
@@ -186,7 +191,8 @@ pub fn execute(stack: &mut JavaStack) {
             // goto
             0xa7 => {
                 let frame = stack.top().expect("Won't happend");
-                pc = ((frame.code[pc + 1] as U4) << 8 | frame.code[pc + 2] as U4) as usize;
+                let offset = ((frame.code[pc + 1] as i16) << 8 | frame.code[pc + 2] as i16) as i16;
+                pc = (pc as isize + offset as isize) as usize;
             }
             0xb1 => {
                 pc = stack.pop();

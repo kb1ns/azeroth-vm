@@ -86,14 +86,14 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
     // TODO classs not found
     let entry_class = entry_class.expect("ClassNotFoundException");
 
-    // execute clinit
-    if let Ok(_) = entry_class.clone().mutex.try_lock() {
-        entry_class.initialized.store(true, std::sync::atomic::Ordering::Relaxed);
-        let ref clinit = entry_class.bytecode.get_method("<clinit>", "()V").expect("clinit must exist");
-        let clinit = mem::stack::JavaFrame::new(entry_class.clone(), std::sync::Arc::clone(clinit));
-        &mut main_thread_stack.push(clinit, 0);
-        interpreter::execute(&mut main_thread_stack);
-    }
+    // // execute clinit
+    // if let Ok(_) = entry_class.clone().mutex.try_lock() {
+    //     entry_class.initialized.store(true, std::sync::atomic::Ordering::Relaxed);
+    //     let ref clinit = entry_class.bytecode.get_method("<clinit>", "()V").expect("clinit must exist");
+    //     let clinit = mem::stack::JavaFrame::new(entry_class.clone(), std::sync::Arc::clone(clinit));
+    //     &mut main_thread_stack.push(clinit, 0);
+    //     interpreter::execute(&mut main_thread_stack);
+    // }
 
     let ref main_method = entry_class.bytecode.get_method("main", "([Ljava/lang/String;)V").expect("Main method not found");
     let main_method = mem::stack::JavaFrame::new(entry_class.clone(), std::sync::Arc::clone(main_method));
