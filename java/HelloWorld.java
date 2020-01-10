@@ -4,10 +4,10 @@ public class HelloWorld {
     public static int count = 0;
 
     static {
-        count += 999;
+        count += 1;
     }
 
-    public static void main(String[] args) {
-        System.out.println("Hello, world.");
+    public static void say(int a, int b) {
+       int c = a + b;
     }
 }

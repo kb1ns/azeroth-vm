@@ -17,11 +17,15 @@ pub struct JavaError {
     // TODO exception class
     pub message: String,
     pub line: i32,
-    pub error_class: String,
+    pub throwable: String,
 }
 
 // TODO
-fn find_and_init_class(stack: &mut JavaStack, pc: usize, class_name: &str) -> (Arc<Klass>, bool) {
+pub fn find_and_init_class(
+    stack: &mut JavaStack,
+    pc: usize,
+    class_name: &str,
+) -> (Arc<Klass>, bool) {
     let class = unsafe {
         if let Some(ref classes) = metaspace::CLASSES {
             classes.clone().find_class(class_name)
@@ -54,11 +58,29 @@ pub fn execute(stack: &mut JavaStack) {
     }
     let mut pc: usize = stack.top().expect("Won't happend").pc;
     while stack.has_next(pc) {
+        // we must check if current class not be initialized
+        let frame = stack.top().expect("Won't happend");
+        if pc == 0 && frame.current_method.0 != "<clinit>" {
+            let klass = frame.klass.clone();
+            if !klass.initialized.load(Ordering::Relaxed) {
+                if let Ok(_) = klass.mutex.try_lock() {
+                    klass.initialized.store(true, Ordering::Relaxed);
+                    let clinit = klass
+                        .bytecode
+                        .get_method("<clinit>", "()V")
+                        .expect("clinit must exist");
+                    let new = JavaFrame::new(klass.clone(), clinit);
+                    stack.push(new, pc);
+                    pc = 0;
+                    continue;
+                }
+            }
+        }
         let instruction = {
-            let current = &stack.top().expect("Won't happend");
+            let frame = &stack.top().expect("Won't happend");
             // TODO if debug
-            current.dump(pc);
-            current.code[pc]
+            frame.dump(pc);
+            frame.code[pc]
         };
         match instruction {
             // nop
@@ -256,20 +278,24 @@ pub fn execute(stack: &mut JavaStack) {
                 pc = pc + 3;
             }
             // invokestatic
-            // 0xb8 => {
-            //     let frame = &stack.top_mut().expect("Won't happend");
-            //     let method_idx =
-            //         (frame.code[(pc + 1) as usize] as U2) << 8 | frame.code[(pc + 2) as usize] as U2;
-            //     let klass = frame.klass.clone();
-            //     let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
-            //     let klass = find_and_init_class(stack, c);
-            //     if let Some(ref method) = klass.bytecode.get_method(m, t) {
-
-            //     } else {
-            //         // TODO
-            //         return Err(fire_exception("", "", -1, "NoSuchMethodError"));
-            //     }
-            // }
+            0xb8 => {
+                let frame = &stack.top_mut().expect("Won't happend");
+                let method_idx = (frame.code[pc + 1] as U2) << 8 | frame.code[pc + 2] as U2;
+                let klass = frame.klass.clone();
+                let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
+                let (klass, initialized) = find_and_init_class(stack, pc, c);
+                if !initialized {
+                    continue;
+                }
+                if let Some(ref method) = klass.bytecode.get_method(m, t) {
+                    let new_frame = JavaFrame::new(klass, Arc::clone(method));
+                    stack.push(new_frame, pc + 3);
+                    pc = 0;
+                } else {
+                    // TODO
+                    // return Err(fire_exception("", "", -1, "NoSuchMethodError"));
+                }
+            }
             _ => {
                 panic!(format!(
                     "Instruction {:?} not implemented yet.",

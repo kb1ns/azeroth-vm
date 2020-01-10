@@ -3,7 +3,7 @@ public class Sum {
 
     static {
         int sum = HelloWorld.count;
-        for (int i = 0; i < 1000; i++) {
+        for (int i = 0; i < 5; i++) {
             sum += i;
         }
     }
@@ -13,5 +13,6 @@ public class Sum {
         for (int i = 0; i < 5; i++) {
             sum += i;
         }
+	HelloWorld.say(1, sum);
     }
 }

@@ -3,6 +3,7 @@ use bytecode::atom::*;
 use std::mem;
 use std::str;
 
+#[derive(Debug)]
 pub struct ConstantPool(Vec<ConstantItem>);
 
 #[derive(Debug)]
@@ -99,6 +100,9 @@ impl ConstantPool {
         if let Some(item) = self.0.get(idx as usize) {
             match item {
                 &ConstantItem::InterfaceMethodRef(c_idx, nt_idx) => {
+                    return (&self.get_str(c_idx), self.get_name_and_type(nt_idx));
+                }
+                &ConstantItem::MethodRef(c_idx, nt_idx) => {
                     return (&self.get_str(c_idx), self.get_name_and_type(nt_idx));
                 }
                 &ConstantItem::FieldRef(c_idx, f_idx) => {
