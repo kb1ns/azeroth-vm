@@ -18,6 +18,18 @@ pub type Slot = [u8; PTR_SIZE];
 pub type WideSlot = (Slot, Slot);
 pub type Word = [u8; PTR_SIZE];
 
+macro_rules! find_class {
+    ($x:expr) => {
+        unsafe {
+            if let Some(ref classes) = metaspace::CLASSES {
+                classes.find_class($x)
+            } else {
+                panic!("won't happend: ClassArena not initialized");
+            }
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub enum Value {
     Word(Word),

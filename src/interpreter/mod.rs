@@ -51,6 +51,20 @@ pub fn find_and_init_class(
     }
     (class, true)
 }
+// TODO use macro instead
+// fn find_class(class_name: &str) -> Option<Arc<Klass>> {
+//     unsafe {
+//         if let Some(ref classes) = metaspace::CLASSES {
+//             classes.find_class(class_name)
+//         } else {
+//             panic!("won't happend: ClassArena not initialized");
+//         }
+//     }
+// }
+
+fn ensure_initialized(stack: &mut JavaStack, klass: Arc<Klass>) {
+
+}
 
 pub fn execute(stack: &mut JavaStack) {
     if stack.is_empty() {
@@ -216,19 +230,25 @@ pub fn execute(stack: &mut JavaStack) {
             }
             // getstatic
             0xb2 => {
-                let frame = &stack.top().expect("Won't happend");
+                let frame = &stack.top_mut().expect("Won't happend");
                 let field_idx = (frame.code[pc + 1] as U2) << 8 | frame.code[pc + 2] as U2;
                 let klass = frame.klass.clone();
                 let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
                 // TODO load class `c`, push `f` to operands according to the type `t`
-                let (klass, initialized) = find_and_init_class(stack, pc, c);
-                if !initialized {
-                    continue;
-                }
+                let klass = match find_class!(c) {
+                    Some(klass) => klass,
+                    None => {
+                        // TODO reset PC
+                        // handle_exception
+                        panic!("ClassNotFoundException");
+                    }
+                };
+
                 let frame = &mut stack.top_mut().expect("Won't happend");
                 if let Some(ref field) = klass.bytecode.get_field(f, t) {
                     match &field.value.get() {
                         None => {
+                            // TODO handle_exception()
                             panic!("");
                         }
                         Some(value) => match value {
@@ -243,21 +263,25 @@ pub fn execute(stack: &mut JavaStack) {
                     }
                 } else {
                     // TODO
-                    // return Err(fire_exception("", "", -1, "NoSuchFieldError"));
+                    // handle_exception();
+                    panic!("NoSuchFieldException");
                 }
                 pc = pc + 3;
             }
             // putstatic
             0xb3 => {
-                let frame = &stack.top_mut().expect("Won't happend");
+                let frame = &stack.top().expect("Won't happend");
                 let field_idx = (frame.code[pc + 1] as U2) << 8 | frame.code[pc + 2] as U2;
                 let klass = frame.klass.clone();
                 let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
                 // TODO load class `c`, push `f` to operands according to the type `t`
-                let (klass, initialized) = find_and_init_class(stack, pc, c);
-                if !initialized {
-                    continue;
-                }
+                let klass = match find_class!(c) {
+                    Some(klass) => klass,
+                    None => {
+                        // TODO
+                        panic!("NoSuchFieldException");
+                    }
+                };
                 let frame = &mut stack.top_mut().expect("Won't happend");
                 if let Some(ref field) = klass.bytecode.get_field(f, t) {
                     match t {
