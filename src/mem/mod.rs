@@ -2,7 +2,6 @@ use super::bytecode::class::Class;
 use super::chashmap::CHashMap;
 use super::classpath::Classpath;
 use super::regex::Regex;
-use std;
 
 pub mod heap;
 pub mod metaspace;

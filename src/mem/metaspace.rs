@@ -1,5 +1,4 @@
 use super::*;
-use std;
 
 pub struct ClassArena {
     pub cp: super::Classpath,

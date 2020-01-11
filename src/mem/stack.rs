@@ -1,12 +1,10 @@
 use bytecode::atom::*;
-use bytecode::attribute::Attribute;
-use bytecode::attribute::ExceptionHandler;
+use bytecode::attribute::{Attribute, ExceptionHandler};
 use bytecode::method::Method;
 use bytecode::*;
 use interpreter;
 use mem::metaspace::Klass;
-use mem::Slot;
-use mem::NULL;
+use mem::{Slot, NULL};
 use std::sync::Arc;
 
 pub struct JavaStack {

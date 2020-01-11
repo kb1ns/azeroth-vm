@@ -3,7 +3,6 @@ use super::mem::metaspace::*;
 use super::mem::stack::*;
 use super::mem::*;
 use bytecode::atom::*;
-use std;
 use std::sync::atomic::*;
 use std::sync::Arc;
 
@@ -20,50 +19,22 @@ pub struct JavaError {
     pub throwable: String,
 }
 
-// TODO
-pub fn find_and_init_class(
-    stack: &mut JavaStack,
-    pc: usize,
-    class_name: &str,
-) -> (Arc<Klass>, bool) {
-    let class = unsafe {
-        if let Some(ref classes) = metaspace::CLASSES {
-            classes.clone().find_class(class_name)
-        } else {
-            panic!("won't happend: ClassArena not initialized");
-        }
-    };
-    // TODO
-    let class = class.expect("ClassNotFoundException");
-    if !class.initialized.load(Ordering::Relaxed) {
-        if let Ok(_) = class.mutex.try_lock() {
-            if !class.initialized.load(Ordering::Relaxed) {
-                class.initialized.store(true, Ordering::Relaxed);
-                let clinit = class
+fn ensure_initialized(stack: &mut JavaStack, klass: Arc<Klass>, pc: usize) -> bool {
+    if !klass.initialized.load(Ordering::Relaxed) {
+        if let Ok(_) = klass.mutex.try_lock() {
+            if !klass.initialized.load(Ordering::Relaxed) {
+                klass.initialized.store(true, Ordering::Relaxed);
+                let clinit = klass
                     .bytecode
                     .get_method("<clinit>", "()V")
                     .expect("clinit must exist");
-                let frame = JavaFrame::new(class.clone(), clinit);
+                let frame = JavaFrame::new(klass.clone(), clinit);
                 stack.push(frame, pc);
-                return (class.clone(), false);
+                return false;
             }
         }
     }
-    (class, true)
-}
-// TODO use macro instead
-// fn find_class(class_name: &str) -> Option<Arc<Klass>> {
-//     unsafe {
-//         if let Some(ref classes) = metaspace::CLASSES {
-//             classes.find_class(class_name)
-//         } else {
-//             panic!("won't happend: ClassArena not initialized");
-//         }
-//     }
-// }
-
-fn ensure_initialized(stack: &mut JavaStack, klass: Arc<Klass>) {
-
+    true
 }
 
 pub fn execute(stack: &mut JavaStack) {
@@ -76,18 +47,9 @@ pub fn execute(stack: &mut JavaStack) {
         let frame = stack.top().expect("Won't happend");
         if pc == 0 && frame.current_method.0 != "<clinit>" {
             let klass = frame.klass.clone();
-            if !klass.initialized.load(Ordering::Relaxed) {
-                if let Ok(_) = klass.mutex.try_lock() {
-                    klass.initialized.store(true, Ordering::Relaxed);
-                    let clinit = klass
-                        .bytecode
-                        .get_method("<clinit>", "()V")
-                        .expect("clinit must exist");
-                    let new = JavaFrame::new(klass.clone(), clinit);
-                    stack.push(new, pc);
-                    pc = 0;
-                    continue;
-                }
+            if !ensure_initialized(stack, klass, pc) {
+                pc = 0;
+                continue;
             }
         }
         let instruction = {
@@ -243,6 +205,10 @@ pub fn execute(stack: &mut JavaStack) {
                         panic!("ClassNotFoundException");
                     }
                 };
+                if !ensure_initialized(stack, klass.clone(), pc) {
+                    pc = 0;
+                    continue;
+                }
 
                 let frame = &mut stack.top_mut().expect("Won't happend");
                 if let Some(ref field) = klass.bytecode.get_field(f, t) {
@@ -282,6 +248,10 @@ pub fn execute(stack: &mut JavaStack) {
                         panic!("NoSuchFieldException");
                     }
                 };
+                if !ensure_initialized(stack, klass.clone(), pc) {
+                    pc = 0;
+                    continue;
+                }
                 let frame = &mut stack.top_mut().expect("Won't happend");
                 if let Some(ref field) = klass.bytecode.get_field(f, t) {
                     match t {
@@ -307,8 +277,9 @@ pub fn execute(stack: &mut JavaStack) {
                 let method_idx = (frame.code[pc + 1] as U2) << 8 | frame.code[pc + 2] as U2;
                 let klass = frame.klass.clone();
                 let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
-                let (klass, initialized) = find_and_init_class(stack, pc, c);
-                if !initialized {
+                let klass = find_class!(c).expect("ClassNotFoundException");
+                if !ensure_initialized(stack, klass.clone(), pc) {
+                    pc = 0;
                     continue;
                 }
                 if let Some(ref method) = klass.bytecode.get_method(m, t) {

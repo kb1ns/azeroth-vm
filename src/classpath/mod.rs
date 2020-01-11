@@ -1,10 +1,9 @@
 extern crate zip;
 
-use super::regex::Regex;
-use std;
+use crate::regex::Regex;
 use std::fs::File;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 enum ClassEntry {
     Jar(String),
@@ -16,7 +15,7 @@ impl ClassEntry {
     fn find_class(&self, class_file: &str) -> Option<Vec<u8>> {
         match self {
             &ClassEntry::Dir(ref dir) => {
-                let mut abs_path = std::path::PathBuf::from(&dir);
+                let mut abs_path = PathBuf::from(&dir);
                 abs_path.push(class_file);
                 if abs_path.exists() && abs_path.is_file() {
                     let mut f = File::open(abs_path).unwrap();
