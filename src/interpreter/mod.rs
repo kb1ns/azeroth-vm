@@ -123,6 +123,15 @@ pub fn execute(stack: &mut JavaStack) {
                 frame.operands.push(frame.locals[opr]);
                 pc = pc + 1;
             }
+            // lload 0 ~ 3
+            0x1e..=0x21 => {
+                let frame = &mut stack.top_mut().expect("Won't happend");
+                let opr = frame.code[pc] as usize - 0x1e;
+                frame.operands.push(frame.locals[opr]);
+                frame.operands.push(frame.locals[opr + 1]);
+                pc = pc + 2;
+            }
+
             // istore 0 ~ 3
             0x3b..=0x3e => {
                 let frame = &mut stack.top_mut().expect("Won't happend");

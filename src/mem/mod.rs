@@ -6,6 +6,7 @@ use super::regex::Regex;
 pub mod heap;
 pub mod metaspace;
 pub mod stack;
+pub mod stackx;
 
 // pub const PTR_SIZE: usize = std::mem::size_of::<usize>();
 
