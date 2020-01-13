@@ -121,9 +121,26 @@ pub fn execute(stack: &mut JavaStack) {
             0x1e..=0x21 => {
                 let opr = stack.get_code(pc) as usize - 0x1e;
                 stack.load(opr, 2);
-                pc = pc + 2;
+                pc = pc + 1;
             }
-
+            // fload 0 ~ 3
+            0x22..=0x25 => {
+                let opr = stack.get_code(pc) as usize - 0x22;
+                stack.load(opr, 1);
+                pc = pc + 1;
+            }
+            // dload 0 ~ 3
+            0x26..=0x29 => {
+                let opr = stack.get_code(pc) as usize - 0x26;
+                stack.load(opr, 2);
+                pc = pc + 1;
+            }
+            // aload 0 ~ 3
+            0x2a..=0x2d => {
+                let opr = stack.get_code(pc) as usize - 0x2a;
+                satck.load(opr, 1);
+                pc = pc + 1;
+            }
             // istore 0 ~ 3
             0x3b..=0x3e => {
                 let opr = stack.get_code(pc) as usize - 0x3b;
@@ -132,10 +149,8 @@ pub fn execute(stack: &mut JavaStack) {
             }
             // iadd
             0x60 => {
-                // let frame = &mut stack.top_mut().expect("Won't happend");
                 let left = stack.pop();
                 let right = stack.pop();
-
                 stack.push(
                     (unsafe { transmute::<Slot, i32>(left) }
                         + unsafe { transmute::<Slot, i32>(right) })
@@ -145,7 +160,6 @@ pub fn execute(stack: &mut JavaStack) {
             }
             // iinc
             0x84 => {
-                let frame = &mut stack.top_mut().expect("Won't happend");
                 let index = stack.get_code(pc + 1) as usize;
                 let cst = stack.get_code(pc + 2) as i32;
                 let new = unsafe { transmute::<Slot, i32>(stack.get(index)) + cst };
@@ -169,8 +183,8 @@ pub fn execute(stack: &mut JavaStack) {
             }
             // goto
             0xa7 => {
-                let frame = stack.top().expect("Won't happend");
-                let offset = ((frame.code[pc + 1] as i16) << 8 | frame.code[pc + 2] as i16) as i16;
+                let offset =
+                    ((stack.get_code(pc + 1) as i16) << 8 | stack.get_code(pc + 2) as i16) as i16;
                 pc = (pc as isize + offset as isize) as usize;
             }
             0xb1 => {
@@ -188,8 +202,6 @@ pub fn execute(stack: &mut JavaStack) {
                     pc = 0;
                     continue;
                 }
-
-                let frame = &mut stack.top_mut().expect("Won't happend");
                 if let Some(ref field) = klass.bytecode.get_field(f, t) {
                     match &field.value.get() {
                         None => {
@@ -238,6 +250,7 @@ pub fn execute(stack: &mut JavaStack) {
                     }
                 } else {
                     // TODO
+                    panic!("NoSuchFieldException");
                 }
                 pc = pc + 3;
             }
