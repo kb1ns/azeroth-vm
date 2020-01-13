@@ -39,5 +39,4 @@ pub fn test() {
             .copy_to(pta, std::mem::size_of::<std::sync::Arc<String>>());
     }
     let reduction = unsafe { std::mem::transmute::<*const u8, *mut std::sync::Arc<String>>(pta) };
-    let reduction = unsafe { std::sync::Arc::from_raw(reduction) };
 }

@@ -1,7 +1,5 @@
 use super::constant_pool::ConstantPool;
-use super::Traveler;
-use super::Value;
-use super::NULL;
+use super::{Traveler, Value, NULL};
 use bytecode::atom::*;
 use bytecode::attribute::*;
 use std::cell::Cell;

@@ -90,6 +90,6 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
         .get_method("main", "([Ljava/lang/String;)V")
         .expect("Main method not found");
     let main_method = mem::stack::JavaFrame::new(entry_class, std::sync::Arc::clone(main_method));
-    &mut main_thread_stack.push(main_method, 0);
+    &mut main_thread_stack.invoke(main_method, 0);
     interpreter::execute(&mut main_thread_stack);
 }

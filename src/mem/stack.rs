@@ -47,7 +47,7 @@ impl JavaStack {
         self.frames.is_empty()
     }
 
-    pub fn push(&mut self, mut frame: JavaFrame, pc: usize) {
+    pub fn invoke(&mut self, mut frame: JavaFrame, pc: usize) {
         if !self.is_empty() {
             let (_, ref descriptor, access_flag) = &frame.current_method;
             let (params, _) = interpreter::resolve_method_descriptor(descriptor);
@@ -79,7 +79,7 @@ impl JavaStack {
         self.frames.push(frame);
     }
 
-    pub fn pop(&mut self) -> usize {
+    pub fn backtrack(&mut self) -> usize {
         let mut frame = self.frames.pop().expect("Illegal operands stack: ");
         if !self.is_empty() {
             let (_, ref descriptor, _) = &frame.current_method;
@@ -100,11 +100,63 @@ impl JavaStack {
         }
         frame.pc
     }
+
+    pub fn get_code(&self, pc: usize) -> u8 {
+        self.top().expect("Illegal class file").code[pc]
+    }
+
+    pub fn load(&mut self, offset: usize, count: usize) {
+        let frame = self.top_mut().expect("Illegal class file");
+        for i in 0..count {
+            frame.operands.push(frame.locals[offset + i]);
+        }
+    }
+
+    pub fn store(&mut self, offset: usize, count: usize) {
+        let frame = self.top_mut().expect("Illegal class file");
+        for i in 0..count {
+            frame.locals[offset + i] = frame.operands.pop().expect("Illegal operands stack: ");
+        }
+    }
+
+    pub fn get(&self, offset: usize) -> Slot {
+        self.top().expect("Illegal locals:").locals[offset]
+    }
+
+    pub fn get_w(&self, offset: usize) -> (Slot, Slot) {
+        let frame = self.top().expect("Illegal class file");
+        (frame.locals[offset], frame.locals[offset + 1])
+    }
+
+    pub fn set(&mut self, offset: usize, v: Slot) {
+        self.top_mut().expect("Illegal locals:").locals[offset] = v;
+    }
+
+    pub fn set_w(&mut self, offset: usize, v: (Slot, Slot)) {
+        let frame = self.top_mut().expect("Illegal class file");
+        frame.locals[offset] = v.0;
+        frame.locals[offset + 1] = v.1;
+    }
+
+    pub fn push(&mut self, v: Slot) {
+        self.top_mut().expect("Illegal class file").operands.push(v);
+    }
+
+    pub fn pop(&mut self) -> Slot {
+        match self.top_mut().expect("Illegal class file").operands.pop() {
+            Some(v) => v,
+            None => {
+                panic!("Illegal operands stack: ");
+            }
+        }
+    }
 }
 
 pub struct JavaFrame {
-    pub locals: Vec<Slot>,
-    pub operands: Vec<Slot>,
+    locals: Vec<Slot>,
+    locals_ptr: *mut Slot,
+    operands: Vec<Slot>,
+    operands_ptr: *mut Slot,
     pub klass: Arc<Klass>,
     pub code: Arc<Vec<u8>>,
     pub exception_handlers: Arc<Vec<ExceptionHandler>>,
@@ -119,12 +171,17 @@ impl JavaFrame {
             .expect("abstract method or interface not allowed");
         if let Attribute::Code(stacks, locals, ref code, ref exception, _) = code_attribute {
             let mut locals = Vec::<Slot>::with_capacity(locals as usize);
+            let locals_ptr = locals.as_mut_ptr();
             for _i in 0..locals.capacity() {
                 locals.push(NULL);
             }
+            let mut operands = Vec::<Slot>::with_capacity(stacks as usize);
+            let operands_ptr = operands.as_mut_ptr();
             return JavaFrame {
                 locals: locals,
-                operands: Vec::<Slot>::with_capacity(stacks as usize),
+                locals_ptr: locals_ptr,
+                operands: operands,
+                operands_ptr: operands_ptr,
                 klass: class,
                 code: Arc::clone(code),
                 exception_handlers: Arc::clone(exception),
