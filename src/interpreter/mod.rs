@@ -138,7 +138,7 @@ pub fn execute(stack: &mut JavaStack) {
             // aload 0 ~ 3
             0x2a..=0x2d => {
                 let opr = stack.get_code(pc) as usize - 0x2a;
-                satck.load(opr, 1);
+                stack.load(opr, 1);
                 pc = pc + 1;
             }
             // istore 0 ~ 3
