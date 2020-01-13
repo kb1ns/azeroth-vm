@@ -1,13 +1,13 @@
-use super::*;
+use mem::*;
 
 pub struct ClassArena {
-    pub cp: super::Classpath,
+    pub cp: Classpath,
     // TODO allow a class been loaded by different classloader instances
     pub classes: CHashMap<String, std::sync::Arc<Klass>>,
 }
 
 pub struct Klass {
-    pub bytecode: super::Class,
+    pub bytecode: Class,
     pub classloader: Classloader,
     pub initialized: std::sync::atomic::AtomicBool,
     pub mutex: std::sync::Mutex<u8>,
@@ -22,6 +22,11 @@ impl Klass {
             mutex: std::sync::Mutex::<u8>::new(0),
         }
     }
+
+    fn instance_size(&self) -> usize {
+        // self.bytecode.fields
+        0
+    }
 }
 
 pub enum Classloader {
@@ -34,7 +39,7 @@ pub static mut CLASSES: Option<std::sync::Arc<ClassArena>> = None;
 
 impl ClassArena {
     pub fn init(app_paths: Vec<String>, bootstrap_paths: Vec<String>) {
-        let mut cp = super::Classpath::init();
+        let mut cp = Classpath::init();
         for path in bootstrap_paths {
             cp.append_bootstrap_classpath(path);
         }

@@ -6,7 +6,6 @@ use super::regex::Regex;
 pub mod heap;
 pub mod metaspace;
 pub mod stack;
-pub mod stackx;
 
 // pub const PTR_SIZE: usize = std::mem::size_of::<usize>();
 
@@ -27,7 +26,7 @@ macro_rules! find_class {
                 panic!("won't happend: ClassArena not initialized");
             }
         }
-    }
+    };
 }
 
 #[derive(Copy, Clone, Debug)]
