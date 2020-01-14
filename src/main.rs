@@ -2,6 +2,7 @@ extern crate argparse;
 extern crate azerothvm;
 extern crate regex;
 
+use azerothvm::mem::metaspace::CLASSES;
 use azerothvm::*;
 
 fn main() {
@@ -73,15 +74,9 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
     let system_paths = resolve_system_classpath(java_home);
     let user_paths = resolve_user_classpath(user_classpath);
     mem::metaspace::ClassArena::init(user_paths, system_paths);
-    // TODO allocate heap
+    mem::heap::Heap::init(10 * 1024 * 1024, 1024 * 1024, 1024 * 1024);
     // TODO GC thread
-    let entry_class = unsafe {
-        if let Some(ref classes) = mem::metaspace::CLASSES {
-            classes.clone().find_class(class_name)
-        } else {
-            panic!("won't happend: ClassArena not initialized");
-        }
-    };
+    let entry_class = find_class!(class_name);
     // TODO classs not found
     let entry_class = entry_class.expect("ClassNotFoundException");
     let mut main_thread_stack = mem::stack::JavaStack::new();

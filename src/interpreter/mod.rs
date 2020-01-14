@@ -21,6 +21,7 @@ pub struct JavaError {
 }
 
 fn ensure_initialized(stack: &mut JavaStack, klass: Arc<Klass>, pc: usize) -> bool {
+    // TODO initilize super class
     if !klass.initialized.load(Ordering::Relaxed) {
         if let Ok(_) = klass.mutex.try_lock() {
             if !klass.initialized.load(Ordering::Relaxed) {

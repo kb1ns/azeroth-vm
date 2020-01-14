@@ -23,6 +23,7 @@ pub enum ConstantItem {
     MethodType(U2),
     InvokeDynamic(U2, U2),
     NIL,
+    PADDING,
 }
 
 impl ConstantPool {
@@ -117,6 +118,9 @@ impl ConstantPool {
     }
 
     pub fn get_str(&self, idx: U2) -> &str {
+        if idx == 0 {
+            return "";
+        }
         if let Some(item) = self.0.get(idx as usize) {
             match item {
                 &ConstantItem::String(offset) => {
@@ -129,8 +133,6 @@ impl ConstantPool {
                     return self.get_str(offset);
                 }
                 _ => {
-                    println!("{}", idx);
-                    println!("{:?}", item);
                     panic!("invalid class file");
                 }
             }
@@ -147,8 +149,8 @@ impl Traveler<ConstantPool> for ConstantPool {
         let size = U2::read(seq, None);
         let mut pool = Vec::<ConstantItem>::with_capacity(size as usize);
         pool.push(ConstantItem::NIL);
-        // let mut offset = 1;
-        for _i in 0..size - 1 {
+        let mut offset = 1;
+        while offset < size {
             let tag = U1::read(seq, None);
             let ele = match tag {
                 INVOKEDYNAMIC_TAG => {
@@ -211,15 +213,15 @@ impl Traveler<ConstantPool> for ConstantPool {
                 LONG_TAG => {
                     let v = U8::read(seq, None);
                     let i: i64 = unsafe { mem::transmute::<u64, i64>(v) };
-                    // offset = offset + 1;
-                    // pool.push(ConstantItem::NIL);
+                    offset = offset + 1;
+                    pool.push(ConstantItem::PADDING);
                     ConstantItem::Long(i)
                 }
                 DOUBLE_TAG => {
                     let v = U8::read(seq, None);
                     let i: f64 = unsafe { mem::transmute::<u64, f64>(v) };
-                    // offset = offset + 1;
-                    // pool.push(ConstantItem::NIL);
+                    offset = offset + 1;
+                    pool.push(ConstantItem::PADDING);
                     ConstantItem::Double(i)
                 }
                 NAMEANDTYPE_TAG => {
@@ -229,6 +231,7 @@ impl Traveler<ConstantPool> for ConstantPool {
                 }
                 _ => panic!("invalid classfile"),
             };
+            offset = offset + 1;
             pool.push(ele);
         }
         ConstantPool(pool)

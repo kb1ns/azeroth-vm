@@ -47,6 +47,7 @@ pub enum Classloader {
 
 pub static mut CLASSES: Option<Arc<ClassArena>> = None;
 
+#[macro_export]
 macro_rules! find_class {
     ($x:expr) => {
         unsafe {
