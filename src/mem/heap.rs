@@ -5,35 +5,50 @@ use bytecode::class::Class;
 use mem::metaspace::Klass;
 use mem::*;
 use std::mem::{size_of, transmute};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 pub struct Heap {
-    pub oldgen_ptr: *mut u8,
-    pub oldgen: Vec<u8>,
-    pub s0_ptr: *mut u8,
-    pub s0: Vec<u8>,
-    pub s1_ptr: *mut u8,
-    pub s1: Vec<u8>,
-    pub eden_ptr: *mut u8,
-    pub eden: Vec<u8>,
+    pub oldgen: Region,
+    pub s0: Arc<RwLock<Region>>,
+    pub s1: Arc<RwLock<Region>>,
+    pub eden: Arc<RwLock<Region>>,
+}
+
+pub struct Region {
+    pub data: Vec<u8>,
+    pub base: *mut u8,
+    pub offset: u32,
+}
+
+impl Region {
+    fn new(size: usize) -> Region {
+        let mut data = vec![0u8; size];
+        let base = (&mut data).as_mut_ptr();
+        Region {
+            data: data,
+            base: base,
+            offset: 0,
+        }
+    }
+
+    fn copy(&mut self, ptr: *mut u8, size: usize) -> bool {
+        // TODO capacity
+        unsafe {
+            self.base.add(self.offset as usize).copy_from(ptr, size);
+            self.offset = self.offset + size as u32;
+            true
+        }
+    }
 }
 
 impl Heap {
     pub fn init(old_size: usize, survivor_size: usize, eden_size: usize) {
-        let mut oldgen = vec![0u8; old_size];
-        let mut eden = vec![0u8; eden_size];
-        let mut s0 = vec![0u8; survivor_size];
-        let mut s1 = vec![0u8; survivor_size];
         unsafe {
             HEAP.replace(Heap {
-                oldgen_ptr: oldgen.as_mut_ptr(),
-                oldgen: oldgen,
-                s0_ptr: s0.as_mut_ptr(),
-                s0: s0,
-                s1_ptr: s1.as_mut_ptr(),
-                s1: s1,
-                eden_ptr: eden.as_mut_ptr(),
-                eden: eden,
+                oldgen: Region::new(old_size),
+                s0: Arc::new(RwLock::new(Region::new(survivor_size))),
+                s1: Arc::new(RwLock::new(Region::new(survivor_size))),
+                eden: Arc::new(RwLock::new(Region::new(eden_size))),
             });
         }
     }
@@ -53,13 +68,16 @@ macro_rules! jvm_heap {
     };
 }
 
-pub fn allocate(klass: Arc<Klass>) -> (*mut u8, usize) {
+pub fn allocate(klass: Arc<Klass>) -> (Word, usize) {
     unsafe {
         let header = Klass::new_instance(klass);
-        let ptr = transmute::<ObjectHeader, [u8; size_of::<ObjectHeader>()]>(header).as_ptr();
-        // TODO
-        ptr.copy_to(jvm_heap!().eden_ptr, size_of::<ObjectHeader>());
-        (jvm_heap!().eden_ptr, size_of::<ObjectHeader>())
+        let ptr = transmute::<ObjectHeader, [u8; size_of::<ObjectHeader>()]>(header).as_mut_ptr();
+        let mut eden = jvm_heap!().eden.write().unwrap();
+        eden.copy(ptr, size_of::<ObjectHeader>());
+        (
+            transmute::<u32, Word>(eden.offset),
+            size_of::<ObjectHeader>(),
+        )
     }
 }
 
@@ -70,6 +88,7 @@ pub fn test() {
     let class_vec = decode(java_lang_object).unwrap();
     let bytecode = Class::from_vec(class_vec);
     let klass = Klass::new(bytecode, metaspace::Classloader::ROOT);
-    let (_, size) = allocate(Arc::new(klass));
-    assert_eq!(3 * 8, size);
+    let (ptr, size) = allocate(Arc::new(klass));
+    assert_eq!(24, size);
+    assert_eq!(24, unsafe{transmute::<Word, u32>(ptr)});
 }
