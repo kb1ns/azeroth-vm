@@ -3,6 +3,7 @@ use super::{Traveler, Value, NULL};
 use bytecode::atom::*;
 use bytecode::attribute::*;
 use std::cell::Cell;
+use std::cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd};
 use std::sync::Arc;
 
 pub type Fields = Vec<Arc<Field>>;
@@ -15,6 +16,44 @@ pub struct Field {
     pub descriptor: String,
     pub attributes: Attributes,
     pub value: Cell<Option<Value>>,
+}
+
+impl Field {
+    /// B = Z = 1 < C = S = 2 < I = F = L = [ = 4 < J = D = 8
+    pub fn memory_size(&self) -> u8 {
+        let ch = self.descriptor.chars().next().expect("");
+        match ch {
+            'B' | 'Z' => 1,
+            'C' | 'S' => 2,
+            'I' | 'F' | 'L' | '[' => 4,
+            'J' | 'D' => 8,
+            _ => {
+                panic!("Illegal descriptor");
+            }
+        }
+    }
+}
+
+impl Ord for Field {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.memory_size().cmp(&other.memory_size())
+    }
+}
+
+impl PartialOrd for Field {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for Field {}
+
+impl PartialEq for Field {
+    fn eq(&self, other: &Self) -> bool {
+        self.access_flag == other.access_flag
+            && self.name == other.name
+            && self.descriptor == other.descriptor
+    }
 }
 
 impl Traveler<Fields> for Fields {

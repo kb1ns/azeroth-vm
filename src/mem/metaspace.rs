@@ -1,31 +1,41 @@
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 use mem::*;
 
 pub struct ClassArena {
     pub cp: Classpath,
     // TODO allow a class been loaded by different classloader instances
-    pub classes: CHashMap<String, std::sync::Arc<Klass>>,
+    pub classes: CHashMap<String, Arc<Klass>>,
 }
 
 pub struct Klass {
     pub bytecode: Class,
     pub classloader: Classloader,
-    pub initialized: std::sync::atomic::AtomicBool,
-    pub mutex: std::sync::Mutex<u8>,
+    pub initialized: AtomicBool,
+    pub mutex: Mutex<u8>,
 }
 
 impl Klass {
-    fn new(bytecode: Class, classloader: Classloader) -> Klass {
+    pub fn new(bytecode: Class, classloader: Classloader) -> Klass {
         Klass {
             bytecode: bytecode,
             classloader: classloader,
-            initialized: std::sync::atomic::AtomicBool::new(false),
-            mutex: std::sync::Mutex::<u8>::new(0),
+            initialized: AtomicBool::new(false),
+            mutex: Mutex::<u8>::new(0),
         }
     }
 
     fn instance_size(&self) -> usize {
-        // self.bytecode.fields
         0
+    }
+
+    pub fn new_instance(klass: Arc<Klass>) -> ObjectHeader {
+        // TODO
+        ObjectHeader {
+            head: NULL,
+            klass: klass,
+            array_info: None,
+        }
     }
 }
 
@@ -35,7 +45,20 @@ pub enum Classloader {
     APP(Word),
 }
 
-pub static mut CLASSES: Option<std::sync::Arc<ClassArena>> = None;
+pub static mut CLASSES: Option<Arc<ClassArena>> = None;
+
+macro_rules! find_class {
+    ($x:expr) => {
+        unsafe {
+            match CLASSES {
+                Some(ref classes) => classes.find_class($x),
+                None => {
+                    panic!("ClassArena not initialized");
+                }
+            }
+        }
+    };
+}
 
 impl ClassArena {
     pub fn init(app_paths: Vec<String>, bootstrap_paths: Vec<String>) {
@@ -48,7 +71,7 @@ impl ClassArena {
         }
 
         unsafe {
-            CLASSES.replace(std::sync::Arc::new(ClassArena {
+            CLASSES.replace(Arc::new(ClassArena {
                 cp: cp,
                 classes: CHashMap::new(),
             }));
@@ -68,7 +91,7 @@ impl ClassArena {
         None
     }
 
-    pub fn find_class(&self, class: &str) -> Option<std::sync::Arc<Klass>> {
+    pub fn find_class(&self, class: &str) -> Option<Arc<Klass>> {
         let class_name = Regex::new(r"\.")
             .unwrap()
             .replace_all(class, "/")
@@ -80,12 +103,9 @@ impl ClassArena {
                     None => None,
                     Some(k) => {
                         let name = class_name.clone();
-                        self.classes.insert_new(class_name, std::sync::Arc::new(k));
-                        // we can't return k.clone() directly
-                        match self.classes.get(&name) {
-                            None => panic!("won't happend"),
-                            Some(kwg) => Some(kwg.clone()),
-                        }
+                        let instance = Arc::new(k);
+                        self.classes.insert_new(class_name, instance.clone());
+                        Some(instance)
                     }
                 }
             }

@@ -129,6 +129,8 @@ impl ConstantPool {
                     return self.get_str(offset);
                 }
                 _ => {
+                    println!("{}", idx);
+                    println!("{:?}", item);
                     panic!("invalid class file");
                 }
             }
@@ -145,10 +147,9 @@ impl Traveler<ConstantPool> for ConstantPool {
         let size = U2::read(seq, None);
         let mut pool = Vec::<ConstantItem>::with_capacity(size as usize);
         pool.push(ConstantItem::NIL);
-        let mut offset = 1;
-        while offset < size {
+        // let mut offset = 1;
+        for _i in 0..size - 1 {
             let tag = U1::read(seq, None);
-            offset = offset + 1;
             let ele = match tag {
                 INVOKEDYNAMIC_TAG => {
                     let bootstrap_method_attr_idx = U2::read(seq, None);
@@ -210,15 +211,15 @@ impl Traveler<ConstantPool> for ConstantPool {
                 LONG_TAG => {
                     let v = U8::read(seq, None);
                     let i: i64 = unsafe { mem::transmute::<u64, i64>(v) };
-                    offset = offset + 1;
-                    pool.push(ConstantItem::NIL);
+                    // offset = offset + 1;
+                    // pool.push(ConstantItem::NIL);
                     ConstantItem::Long(i)
                 }
                 DOUBLE_TAG => {
                     let v = U8::read(seq, None);
                     let i: f64 = unsafe { mem::transmute::<u64, f64>(v) };
-                    offset = offset + 1;
-                    pool.push(ConstantItem::NIL);
+                    // offset = offset + 1;
+                    // pool.push(ConstantItem::NIL);
                     ConstantItem::Double(i)
                 }
                 NAMEANDTYPE_TAG => {

@@ -1,9 +1,11 @@
-use super::bytecode::class::Class;
-use super::chashmap::CHashMap;
-use super::classpath::Classpath;
-use super::regex::Regex;
+use bytecode::class::Class;
+use chashmap::CHashMap;
+use classpath::Classpath;
+use regex::Regex;
 
+#[macro_use]
 pub mod heap;
+#[macro_use]
 pub mod metaspace;
 pub mod stack;
 
@@ -17,17 +19,6 @@ pub type Slot = [u8; PTR_SIZE];
 pub type WideSlot = (Slot, Slot);
 pub type Word = [u8; PTR_SIZE];
 
-macro_rules! find_class {
-    ($x:expr) => {
-        unsafe {
-            if let Some(ref classes) = metaspace::CLASSES {
-                classes.find_class($x)
-            } else {
-                panic!("won't happend: ClassArena not initialized");
-            }
-        }
-    };
-}
 
 #[derive(Copy, Clone, Debug)]
 pub enum Value {
@@ -73,16 +64,11 @@ impl Memorizable<WideSlot> for f64 {
     }
 }
 
-pub struct Object {
+pub struct ObjectHeader {
     head: Word,
-    klass: std::sync::Arc<self::metaspace::Klass>,
+    klass: std::sync::Arc<metaspace::Klass>,
     array_info: Option<Word>,
-    handle: Word,
-    payload: Vec<u8>,
-}
-
-impl Object {
-    fn padding(&mut self) {}
+    // payload: Vec<u8>,
 }
 
 #[test]

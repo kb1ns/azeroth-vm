@@ -32,7 +32,8 @@ impl Class {
         let this_class_name = constants.get_str(this_class).to_string();
         let super_class_name = constants.get_str(super_class).to_string();
         let interfaces = Interfaces::read(seq, Some(&constants));
-        let fields = Fields::read(seq, Some(&constants));
+        let mut fields = Fields::read(seq, Some(&constants));
+        fields.sort();
         let methods = Methods::read(seq, Some(&constants));
         let attributes = Attributes::read(seq, Some(&constants));
         Class {
@@ -67,5 +68,9 @@ impl Class {
 
     pub fn get_name(&self) -> String {
         self.this_class_name.clone()
+    }
+
+    pub fn get_super_class(&self) -> String {
+        self.super_class_name.clone()
     }
 }
