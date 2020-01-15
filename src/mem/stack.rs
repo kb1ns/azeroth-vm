@@ -4,7 +4,7 @@ use bytecode::method::Method;
 use bytecode::*;
 use interpreter;
 use mem::metaspace::Klass;
-use mem::{Slot, NULL};
+use mem::{Slot, NULL, PTR_SIZE};
 use std::sync::Arc;
 
 pub struct JavaStack {
@@ -19,20 +19,6 @@ impl JavaStack {
         JavaStack {
             frames: Vec::<JavaFrame>::new(),
             max_stack_size: 0,
-        }
-    }
-
-    pub fn top(&self) -> Option<&JavaFrame> {
-        match self.frames.len() {
-            0 => None,
-            n => Some(&self.frames[n - 1]),
-        }
-    }
-
-    pub fn top_mut(&mut self) -> Option<&mut JavaFrame> {
-        match self.frames.len() {
-            0 => None,
-            n => Some(&mut self.frames[n - 1]),
         }
     }
 
@@ -102,61 +88,71 @@ impl JavaStack {
     }
 
     pub fn get_code(&self, pc: usize) -> u8 {
-        self.top().expect("Illegal class file").code[pc]
+        self.frames.last().expect("Illegal class file").code[pc]
     }
 
     pub fn load(&mut self, offset: usize, count: usize) {
-        let frame = self.top_mut().expect("Illegal class file");
-        for i in 0..count {
-            frame.operands.push(frame.locals[offset + i]);
-        }
+        let current = self.frames.last_mut().expect("Illegal class file");
+        current
+            .operands_ptr
+            .copy_from(current.locals[offset * PTR_SIZE..].as_ptr(), count);
+        current.operands_ptr = current.operands_ptr.add(count * PTR_SIZE);
     }
 
     pub fn store(&mut self, offset: usize, count: usize) {
-        let frame = self.top_mut().expect("Illegal class file");
-        for i in 0..count {
-            frame.locals[offset + i] = frame.operands.pop().expect("Illegal operands stack: ");
-        }
+        let current = self.top_mut().expect("Illegal class file");
+        current.operands_ptr = current.operands_ptr.sub(count * PTR_SIZE);
+        current.operands_ptr.copy_to(&current.locals[offset * PTR_SIZE..].as_mut_ptr(), count * PTR_SIZE);
     }
 
     pub fn get(&self, offset: usize) -> Slot {
-        self.top().expect("Illegal locals:").locals[offset]
+        let mut data = NULL;
+        let current = self.frames.last_mut().expect("Illegal operands");
+        &data[..].copy_from_slice(currentl.locals[offset * PTR_SIZE..(offset + 1) * PTR_SIZE]);
+        data
     }
 
     pub fn get_w(&self, offset: usize) -> (Slot, Slot) {
-        let frame = self.top().expect("Illegal class file");
-        (frame.locals[offset], frame.locals[offset + 1])
+        let mut (data0, data1) = (NULL, NULL);
+        let current = self.frames.last_mut().expect("Illegal operands");
+        &data0[..].copy_from_slice(currentl.locals[offset * PTR_SIZE..(offset + 1) * PTR_SIZE]);
+        &data1[..].copy_from_slice(currentl.locals[(offset + 1) * PTR_SIZE..(offset + 2) * PTR_SIZE]);
+        (data0, data1)
     }
 
     pub fn set(&mut self, offset: usize, v: Slot) {
-        self.top_mut().expect("Illegal locals:").locals[offset] = v;
+        let frame = self.frames.last_mut().expect("Illegal class file");
+        &frame.locals[offset * PTR_SIZE..].copy_from_slice(&v[..]);
     }
 
     pub fn set_w(&mut self, offset: usize, v: (Slot, Slot)) {
-        let frame = self.top_mut().expect("Illegal class file");
-        frame.locals[offset] = v.0;
-        frame.locals[offset + 1] = v.1;
+        let frame = self.frames.last_mut().expect("Illegal class file");
+        &frame.locals[offset * PTR_SIZE..].copy_from_slice(&v.0[..]);
+        &frame.locals[(offset + 1) * PTR_SIZE].copy_from_slice(&v.1[..]);
+        // frame.locals[offset] = v.0;
+        // frame.locals[offset + 1] = v.1;
     }
 
     pub fn push(&mut self, v: Slot) {
-        self.top_mut().expect("Illegal class file").operands.push(v);
+        let current = self.frames.last_mut().expect("Illegal class file");
+        current.operands_ptr.copy_from(&v.as_ptr(), PTR_SIZE);
+        current.operands_ptr = top.operands_ptr.add(PTR_SIZE);
     }
 
     pub fn pop(&mut self) -> Slot {
-        match self.top_mut().expect("Illegal class file").operands.pop() {
-            Some(v) => v,
-            None => {
-                panic!("Illegal operands stack: ");
-            }
-        }
+        let mut data = NULL;
+        let current = self.frames.last_mut().expect("Illegal operands");
+        current.operands_ptr = current.operands_ptr.sub(PTR_SIZE);
+        current.operands_ptr.copy_to(&mut data.as_mut_ptr(), PTR_SIZE);
+        data
     }
 }
 
 pub struct JavaFrame {
-    locals: Vec<Slot>,
-    locals_ptr: *mut Slot,
-    operands: Vec<Slot>,
-    operands_ptr: *mut Slot,
+    pub locals: Vec<u8>,
+    locals_ptr: *mut u8,
+    operands: Vec<u8>,
+    pub operands_ptr: *mut u8,
     pub klass: Arc<Klass>,
     pub code: Arc<Vec<u8>>,
     pub exception_handlers: Arc<Vec<ExceptionHandler>>,
@@ -170,12 +166,9 @@ impl JavaFrame {
             .get_code()
             .expect("abstract method or interface not allowed");
         if let Attribute::Code(stacks, locals, ref code, ref exception, _) = code_attribute {
-            let mut locals = Vec::<Slot>::with_capacity(locals as usize);
+            let mut locals = vec![0u8; locals as usize];
             let locals_ptr = locals.as_mut_ptr();
-            for _i in 0..locals.capacity() {
-                locals.push(NULL);
-            }
-            let mut operands = Vec::<Slot>::with_capacity(stacks as usize);
+            let mut operands = Vec::<u8>::with_capacity(PTR_SIZE * stacks as usize);
             let operands_ptr = operands.as_mut_ptr();
             return JavaFrame {
                 locals: locals,

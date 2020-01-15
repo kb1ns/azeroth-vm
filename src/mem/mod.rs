@@ -9,10 +9,10 @@ pub mod heap;
 pub mod metaspace;
 pub mod stack;
 
-// pub const PTR_SIZE: usize = std::mem::size_of::<usize>();
+pub const PTR_SIZE: usize = std::mem::size_of::<usize>();
 
 // 32-bit vm
-pub const PTR_SIZE: usize = 4;
+// pub const PTR_SIZE: usize = 4;
 pub const NULL: Slot = [0x00; PTR_SIZE];
 
 pub type Slot = [u8; PTR_SIZE];
