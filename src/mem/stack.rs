@@ -3,7 +3,7 @@ use bytecode::attribute::{Attribute, ExceptionHandler};
 use bytecode::method::Method;
 use bytecode::*;
 use interpreter;
-use mem::metaspace::Klass;
+use mem::klass::Klass;
 use mem::{Slot, WideSlot, LONG_NULL, NULL, PTR_SIZE};
 use std::sync::Arc;
 

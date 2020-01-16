@@ -1,54 +1,52 @@
 extern crate base64;
 
 use self::base64::decode;
-use bytecode::class::Class;
-use mem::metaspace::Klass;
+use mem::klass::{Klass, ObjectHeader};
 use mem::*;
 use std::mem::{size_of, transmute};
 use std::sync::{Arc, RwLock};
 
 pub struct Heap {
-    pub oldgen: Region,
+    _data: Vec<u8>,
+    pub base: *mut u8,
+    pub oldgen: Arc<RwLock<Region>>,
     pub s0: Arc<RwLock<Region>>,
     pub s1: Arc<RwLock<Region>>,
     pub eden: Arc<RwLock<Region>>,
 }
 
 pub struct Region {
-    pub data: Vec<u8>,
-    pub base: *mut u8,
-    pub offset: u32,
+    pub offset: Ref,
+    pub limit: Ref,
 }
 
 impl Region {
-    fn new(size: usize) -> Region {
-        let mut data = vec![0u8; size];
-        let base = (&mut data).as_mut_ptr();
+    fn new(start: Ref, limit: Ref) -> Region {
         Region {
-            data: data,
-            base: base,
-            offset: 0,
-        }
-    }
-
-    fn copy(&mut self, ptr: *mut u8, size: usize) -> bool {
-        // TODO capacity
-        unsafe {
-            self.base.add(self.offset as usize).copy_from(ptr, size);
-            self.offset = self.offset + size as u32;
-            true
+            offset: start,
+            limit: limit,
         }
     }
 }
 
 impl Heap {
-    pub fn init(old_size: usize, survivor_size: usize, eden_size: usize) {
+    pub fn init(old_size: u32, survivor_size: u32, eden_size: u32) {
+        // TODO
+        let mut data =
+            Vec::<u8>::with_capacity((old_size + eden_size + survivor_size * 2) as usize);
+        let ptr = data.as_mut_ptr();
+        let eden = Region::new(0, eden_size);
+        let s0 = Region::new(eden_size, survivor_size);
+        let s1 = Region::new(eden_size + survivor_size, survivor_size);
+        let oldgen = Region::new(eden_size + 2 * survivor_size, old_size);
         unsafe {
             HEAP.replace(Heap {
-                oldgen: Region::new(old_size),
-                s0: Arc::new(RwLock::new(Region::new(survivor_size))),
-                s1: Arc::new(RwLock::new(Region::new(survivor_size))),
-                eden: Arc::new(RwLock::new(Region::new(eden_size))),
+                _data: data,
+                base: ptr,
+                s0: Arc::new(RwLock::new(s0)),
+                s1: Arc::new(RwLock::new(s1)),
+                eden: Arc::new(RwLock::new(eden)),
+                oldgen: Arc::new(RwLock::new(oldgen)),
             });
         }
     }
@@ -59,26 +57,30 @@ static mut HEAP: Option<Heap> = None;
 #[macro_export]
 macro_rules! jvm_heap {
     () => {
-        match heap::HEAP {
-            Some(ref heap) => heap,
-            None => {
-                panic!("Heap not initialized");
+        unsafe {
+            match heap::HEAP {
+                Some(ref heap) => heap,
+                None => panic!("Heap not initialized"),
             }
         }
     };
 }
 
-pub fn allocate(klass: Arc<Klass>) -> (Ref, usize) {
+pub fn allocate(klass: &Arc<Klass>) -> (Ref, u32) {
+    let header = Klass::new_instance(klass);
+    let mut v = unsafe { transmute::<ObjectHeader, [u8; size_of::<ObjectHeader>()]>(header) };
+    let ptr = v.as_mut_ptr();
+    let mut eden = jvm_heap!().eden.write().unwrap();
+    // TODO ensure enough space to allocate object
+    let base_ptr = jvm_heap!().base;
     unsafe {
-        let header = Klass::new_instance(klass);
-        let ptr = transmute::<ObjectHeader, [u8; size_of::<ObjectHeader>()]>(header).as_mut_ptr();
-        let mut eden = jvm_heap!().eden.write().unwrap();
-        eden.copy(ptr, size_of::<ObjectHeader>());
-        (
-            transmute::<u32, Ref>(eden.offset),
-            size_of::<ObjectHeader>(),
-        )
+        let eden_ptr = base_ptr.add(eden.offset as usize);
+        eden_ptr.copy_from(ptr, size_of::<ObjectHeader>());
     }
+    let addr = eden.offset;
+    let instance_size = size_of::<ObjectHeader>() as u32 + (&klass).instance_size();
+    eden.offset = eden.offset + instance_size;
+    (addr, instance_size)
 }
 
 #[test]
@@ -88,7 +90,9 @@ pub fn test() {
     let class_vec = decode(java_lang_object).unwrap();
     let bytecode = Class::from_vec(class_vec);
     let klass = Klass::new(bytecode, metaspace::Classloader::ROOT);
-    let (ptr, size) = allocate(Arc::new(klass));
-    assert_eq!(24, size);
-    assert_eq!(24, unsafe{transmute::<Ref, u32>(ptr)});
+    let klass = Arc::new(klass);
+    let (offset, size) = allocate(&klass);
+    assert_eq!(size_of::<ObjectHeader>() as u32 + (&klass).instance_size(), size);
+    let (offset, size) = allocate(&klass);
+    assert_eq!(offset, size);
 }

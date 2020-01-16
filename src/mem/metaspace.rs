@@ -1,42 +1,11 @@
-use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use mem::klass::Klass;
 use mem::*;
+use std::sync::Arc;
 
 pub struct ClassArena {
     pub cp: Classpath,
     // TODO allow a class been loaded by different classloader instances
     pub classes: CHashMap<String, Arc<Klass>>,
-}
-
-pub struct Klass {
-    pub bytecode: Class,
-    pub classloader: Classloader,
-    pub initialized: AtomicBool,
-    pub mutex: Mutex<u8>,
-}
-
-impl Klass {
-    pub fn new(bytecode: Class, classloader: Classloader) -> Klass {
-        Klass {
-            bytecode: bytecode,
-            classloader: classloader,
-            initialized: AtomicBool::new(false),
-            mutex: Mutex::<u8>::new(0),
-        }
-    }
-
-    fn instance_size(&self) -> usize {
-        0
-    }
-
-    pub fn new_instance(klass: Arc<Klass>) -> ObjectHeader {
-        // TODO
-        ObjectHeader {
-            head: NULL,
-            klass: klass,
-            array_info: None,
-        }
-    }
 }
 
 pub enum Classloader {
@@ -53,9 +22,7 @@ macro_rules! find_class {
         unsafe {
             match CLASSES {
                 Some(ref classes) => classes.find_class($x),
-                None => {
-                    panic!("ClassArena not initialized");
-                }
+                None => panic!("ClassArena not initialized"),
             }
         }
     };

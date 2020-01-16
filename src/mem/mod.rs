@@ -7,6 +7,7 @@ use regex::Regex;
 pub mod heap;
 #[macro_use]
 pub mod metaspace;
+pub mod klass;
 pub mod stack;
 
 // pub const PTR_SIZE: usize = std::mem::size_of::<usize>();
@@ -20,7 +21,7 @@ pub const LONG_NULL: WideSlot = [0x00; PTR_SIZE * 2];
 pub type Slot = [u8; PTR_SIZE];
 pub type WideSlot = [u8; PTR_SIZE * 2];
 
-pub type Ref = Slot;
+pub type Ref = u32;
 
 #[derive(Copy, Clone, Debug)]
 pub enum Value {
@@ -130,13 +131,6 @@ impl Memorizable<WideSlot> for f64 {
     fn memorized(&self) -> WideSlot {
         unsafe { std::mem::transmute::<f64, WideSlot>(*self) }
     }
-}
-
-pub struct ObjectHeader {
-    head: Ref,
-    klass: std::sync::Arc<metaspace::Klass>,
-    array_info: Option<Ref>,
-    // payload: Vec<u8>,
 }
 
 #[test]

@@ -1,8 +1,9 @@
-use super::bytecode::*;
-use super::mem::metaspace::*;
-use super::mem::stack::*;
-use super::mem::*;
 use bytecode::atom::*;
+use bytecode::*;
+use mem::klass::Klass;
+use mem::metaspace::*;
+use mem::stack::*;
+use mem::*;
 use std::mem::transmute;
 use std::sync::atomic::*;
 use std::sync::Arc;
