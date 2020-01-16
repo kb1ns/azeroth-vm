@@ -68,14 +68,14 @@ macro_rules! jvm_heap {
     };
 }
 
-pub fn allocate(klass: Arc<Klass>) -> (Word, usize) {
+pub fn allocate(klass: Arc<Klass>) -> (Ref, usize) {
     unsafe {
         let header = Klass::new_instance(klass);
         let ptr = transmute::<ObjectHeader, [u8; size_of::<ObjectHeader>()]>(header).as_mut_ptr();
         let mut eden = jvm_heap!().eden.write().unwrap();
         eden.copy(ptr, size_of::<ObjectHeader>());
         (
-            transmute::<u32, Word>(eden.offset),
+            transmute::<u32, Ref>(eden.offset),
             size_of::<ObjectHeader>(),
         )
     }
@@ -90,5 +90,5 @@ pub fn test() {
     let klass = Klass::new(bytecode, metaspace::Classloader::ROOT);
     let (ptr, size) = allocate(Arc::new(klass));
     assert_eq!(24, size);
-    assert_eq!(24, unsafe{transmute::<Word, u32>(ptr)});
+    assert_eq!(24, unsafe{transmute::<Ref, u32>(ptr)});
 }
