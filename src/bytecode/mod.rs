@@ -9,8 +9,6 @@ pub mod method;
 use bytecode::constant_pool::ConstantPool;
 use bytecode::atom::*;
 
-use super::mem::*;
-
 trait Traveler<T> {
     fn read<I>(seq: &mut I, constants: Option<&ConstantPool>) -> T
     where

@@ -42,7 +42,7 @@ impl Klass {
 pub enum Classloader {
     ROOT,
     EXT,
-    APP(Word),
+    APP(Ref),
 }
 
 pub static mut CLASSES: Option<Arc<ClassArena>> = None;
@@ -103,7 +103,6 @@ impl ClassArena {
                 match self.define_class(&class_name, Classloader::ROOT) {
                     None => None,
                     Some(k) => {
-                        let name = class_name.clone();
                         let instance = Arc::new(k);
                         self.classes.insert_new(class_name, instance.clone());
                         Some(instance)

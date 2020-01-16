@@ -1,7 +1,8 @@
-use super::constant_pool::ConstantPool;
-use super::{Traveler, Value, NULL};
+use bytecode::constant_pool::ConstantPool;
+use bytecode::Traveler;
 use bytecode::atom::*;
 use bytecode::attribute::*;
+use mem::Value;
 use std::cell::Cell;
 use std::cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd};
 use std::sync::Arc;
@@ -73,9 +74,9 @@ impl Traveler<Fields> for Fields {
 fn init_value(access_flag: u16, descriptor: &str) -> Option<Value> {
     if access_flag & STATIC == STATIC {
         if descriptor == "D" || descriptor == "J" {
-            Some(Value::DWord(NULL, NULL))
+            Some(Value::DWord(0))
         } else {
-            Some(Value::Word(NULL))
+            Some(Value::Word(0))
         }
     } else {
         None

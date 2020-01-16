@@ -43,10 +43,10 @@ pub fn execute(stack: &mut JavaStack) {
     if stack.is_empty() {
         return;
     }
-    let mut pc: usize = stack.top().expect("Won't happend").pc;
+    let mut pc: usize = stack.frames.last().expect("Won't happend").pc;
     while stack.has_next(pc) {
         // we must check if current class not be initialized
-        let frame = stack.top().expect("Won't happend");
+        let frame = stack.frames.last().expect("Won't happend");
         if pc == 0 && frame.current_method.0 != "<clinit>" {
             let klass = frame.klass.clone();
             if !ensure_initialized(stack, klass, pc) {
@@ -55,7 +55,7 @@ pub fn execute(stack: &mut JavaStack) {
             }
         }
         let instruction = {
-            let frame = &stack.top().expect("Won't happend");
+            let frame = stack.frames.last().expect("Won't happend");
             // TODO if debug
             frame.dump(pc);
             frame.code[pc]
@@ -67,47 +67,47 @@ pub fn execute(stack: &mut JavaStack) {
             }
             // aconst_null
             0x01 => {
-                stack.push(NULL);
+                stack.push(&NULL);
                 pc = pc + 1;
             }
             // iconst -1 ~ 5
             0x02..=0x08 => {
                 let opr = stack.get_code(pc) as i32 - 3;
-                stack.push(opr.memorized());
+                stack.push(&opr.memorized());
                 pc = pc + 1;
             }
             // lconst 0 ~ 1
             // byteorder: higher first
             0x09..=0x0a => {
                 let opr = stack.get_code(pc) as i64 - 9;
-                let (lower, higher) = opr.memorized();
-                stack.push(higher);
-                stack.push(lower);
+                let long = opr.memorized();
+                stack.push(&long[..4]);
+                stack.push(&long[4..]);
                 pc = pc + 1;
             }
             // fconst 0 ~ 2
             0x0b..=0x0d => {
                 let opr = stack.get_code(pc) as f32 - 11.0;
-                stack.push(opr.memorized());
+                stack.push(&opr.memorized());
                 pc = pc + 1;
             }
             // dconst 0 ~ 1
             0x0e..=0x0f => {
                 let opr = stack.get_code(pc) as f64 - 14.0;
-                let (lower, higher) = opr.memorized();
-                stack.push(higher);
-                stack.push(lower);
+                let double = opr.memorized();
+                stack.push(&double[..4]);
+                stack.push(&double[4..]);
                 pc = pc + 1;
             }
             // bipush
             0x10 => {
-                stack.push((stack.get_code(pc + 1) as i32).memorized());
+                stack.push(&(stack.get_code(pc + 1) as i32).memorized());
                 pc = pc + 2;
             }
             // sipush
             0x11 => {
                 stack.push(
-                    ((stack.get_code(pc + 1) as i32) << 8 | (stack.get_code(pc + 2) as i32))
+                    &((stack.get_code(pc + 1) as i32) << 8 | (stack.get_code(pc + 2) as i32))
                         .memorized(),
                 );
                 pc = pc + 3;
@@ -152,11 +152,7 @@ pub fn execute(stack: &mut JavaStack) {
             0x60 => {
                 let left = stack.pop();
                 let right = stack.pop();
-                stack.push(
-                    (unsafe { transmute::<Slot, i32>(left) }
-                        + unsafe { transmute::<Slot, i32>(right) })
-                    .memorized(),
-                );
+                stack.push(&(i32::from_ne_bytes(left) + i32::from_ne_bytes(right)).memorized());
                 pc = pc + 1;
             }
             // iinc
@@ -193,7 +189,7 @@ pub fn execute(stack: &mut JavaStack) {
             }
             // getstatic
             0xb2 => {
-                let frame = &stack.top_mut().expect("Won't happend");
+                let frame = &stack.frames.last_mut().expect("Won't happend");
                 let field_idx = (frame.code[pc + 1] as U2) << 8 | frame.code[pc + 2] as U2;
                 let klass = frame.klass.clone();
                 let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
@@ -205,18 +201,10 @@ pub fn execute(stack: &mut JavaStack) {
                 }
                 if let Some(ref field) = klass.bytecode.get_field(f, t) {
                     match &field.value.get() {
-                        None => {
-                            // TODO handle_exception()
-                            panic!("");
-                        }
+                        None => panic!(""),
                         Some(value) => match value {
-                            Value::Word(v) => {
-                                stack.push(*v);
-                            }
-                            Value::DWord(lower, higher) => {
-                                stack.push(*higher);
-                                stack.push(*lower);
-                            }
+                            Value::DWord(_) => stack.push(&Value::of_w(*value)),
+                            _ => stack.push(&Value::of(*value)),
                         },
                     }
                 } else {
@@ -229,7 +217,12 @@ pub fn execute(stack: &mut JavaStack) {
             // putstatic
             0xb3 => {
                 let field_idx = (stack.get_code(pc + 1) as U2) << 8 | stack.get_code(pc + 2) as U2;
-                let klass = stack.top().expect("Illegal class file").klass.clone();
+                let klass = stack
+                    .frames
+                    .last()
+                    .expect("Illegal class file")
+                    .klass
+                    .clone();
                 let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
                 // TODO load class `c`, push `f` to operands according to the type `t`
                 let klass = find_class!(c).expect("ClassNotFoundException");
@@ -238,17 +231,10 @@ pub fn execute(stack: &mut JavaStack) {
                     continue;
                 }
                 if let Some(ref field) = klass.bytecode.get_field(f, t) {
-                    match t {
-                        "D" | "J" => {
-                            let lower = stack.pop();
-                            let higher = stack.pop();
-                            &field.value.set(Some(Value::DWord(lower, higher)));
-                        }
-                        _ => {
-                            let v = stack.pop();
-                            &field.value.set(Some(Value::Word(v)));
-                        }
-                    }
+                    &field.value.set(match t {
+                        "D" | "J" => Some(Value::eval_w(stack.pop_w())),
+                        _ => Some(Value::eval(stack.pop(), t)),
+                    });
                 } else {
                     // TODO
                     panic!("NoSuchFieldException");
@@ -258,7 +244,12 @@ pub fn execute(stack: &mut JavaStack) {
             // invokestatic
             0xb8 => {
                 let method_idx = (stack.get_code(pc + 1) as U2) << 8 | stack.get_code(pc + 2) as U2;
-                let klass = stack.top().expect("Illega class file").klass.clone();
+                let klass = stack
+                    .frames
+                    .last()
+                    .expect("Illega class file")
+                    .klass
+                    .clone();
                 let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
                 let klass = find_class!(c).expect("ClassNotFoundException");
                 if !ensure_initialized(stack, klass.clone(), pc) {
@@ -273,12 +264,10 @@ pub fn execute(stack: &mut JavaStack) {
                     // TODO
                 }
             }
-            _ => {
-                panic!(format!(
-                    "Instruction {:?} not implemented yet.",
-                    instruction
-                ));
-            }
+            _ => panic!(format!(
+                "Instruction {:?} not implemented yet.",
+                instruction
+            )),
         }
     }
 }
