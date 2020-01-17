@@ -21,7 +21,7 @@ macro_rules! find_class {
     ($x:expr) => {
         unsafe {
             match CLASSES {
-                Some(ref classes) => classes.find_class($x),
+                Some(ref classes) => classes.load_class($x),
                 None => panic!("ClassArena not initialized"),
             }
         }
@@ -46,37 +46,41 @@ impl ClassArena {
         }
     }
 
-    fn define_class(&self, class_name: &str, classloader: Classloader) -> Option<Klass> {
+    fn define_class(&self, class_name: &str) -> Option<Class> {
+        if let Some(bytecode) = self.cp.find_app_class(class_name) {
+            return Some(Class::from_vec(bytecode));
+        }
         if let Some(bytecode) = self.cp.find_bootstrap_class(class_name) {
-            return Some(Klass::new(Class::from_vec(bytecode), classloader));
+            return Some(Class::from_vec(bytecode));
         }
         if let Some(bytecode) = self.cp.find_ext_class(class_name) {
-            return Some(Klass::new(Class::from_vec(bytecode), classloader));
-        }
-        if let Some(bytecode) = self.cp.find_app_class(class_name) {
-            return Some(Klass::new(Class::from_vec(bytecode), classloader));
+            return Some(Class::from_vec(bytecode));
         }
         None
     }
 
-    pub fn find_class(&self, class: &str) -> Option<Arc<Klass>> {
+    pub fn load_class(&self, class: &str) -> Result<Arc<Klass>, String> {
         let class_name = Regex::new(r"\.")
             .unwrap()
             .replace_all(class, "/")
             .into_owned();
         match self.classes.get(&class_name) {
-            None => {
-                // TODO classloader
-                match self.define_class(&class_name, Classloader::ROOT) {
-                    None => None,
-                    Some(k) => {
-                        let instance = Arc::new(k);
-                        self.classes.insert_new(class_name, instance.clone());
-                        Some(instance)
-                    }
+            None => match self.define_class(&class_name) {
+                None => Err(class.to_owned()),
+                Some(k) => {
+                    let superclass = (&k).get_super_class();
+                    let superclass = if !superclass.is_empty() {
+                        Some(self.load_class(superclass)?)
+                    } else {
+                        None
+                    };
+                    // TODO classloader
+                    let klass = Arc::new(Klass::new(k, Classloader::ROOT, superclass));
+                    self.classes.insert_new(class_name, klass.clone());
+                    Ok(klass)
                 }
-            }
-            Some(ptr) => Some(ptr.clone()),
+            },
+            Some(ptr) => Ok(ptr.clone()),
         }
     }
 }

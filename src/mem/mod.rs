@@ -89,10 +89,6 @@ impl Value {
     }
 }
 
-pub trait BitwiseTransform<T> {
-    fn fill(&self) -> T;
-}
-
 pub trait Memorizable<T> {
     fn memorized(&self) -> T;
 }
