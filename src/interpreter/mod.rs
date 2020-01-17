@@ -248,7 +248,7 @@ pub fn execute(stack: &mut JavaStack) {
                 let klass = stack
                     .frames
                     .last()
-                    .expect("Illega class file")
+                    .expect("Illegal class file")
                     .klass
                     .clone();
                 let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
@@ -263,6 +263,7 @@ pub fn execute(stack: &mut JavaStack) {
                     pc = 0;
                 } else {
                     // TODO
+                    panic!("NoSuchMethodException");
                 }
             }
             _ => panic!(format!(
