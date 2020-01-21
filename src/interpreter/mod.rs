@@ -294,6 +294,8 @@ pub fn execute(stack: &mut JavaStack) {
                     continue;
                 }
                 if let Some(ref method) = klass.bytecode.get_method(m, t) {
+                    // TODO
+
                     let new_frame = JavaFrame::new(klass, Arc::clone(method));
                     stack.invoke(new_frame, pc + 3);
                     pc = 0;
