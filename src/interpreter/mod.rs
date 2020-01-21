@@ -1,6 +1,7 @@
 use bytecode::atom::*;
 use bytecode::*;
-use mem::klass::Klass;
+use mem::heap::*;
+use mem::klass::*;
 use mem::metaspace::*;
 use mem::stack::*;
 use mem::*;
@@ -27,13 +28,14 @@ fn ensure_initialized(stack: &mut JavaStack, klass: Arc<Klass>, pc: usize) -> bo
         if let Ok(_) = klass.mutex.try_lock() {
             if !klass.initialized.load(Ordering::Relaxed) {
                 klass.initialized.store(true, Ordering::Relaxed);
-                let clinit = klass
-                    .bytecode
-                    .get_method("<clinit>", "()V")
-                    .expect("clinit must exist");
-                let frame = JavaFrame::new(klass.clone(), clinit);
-                stack.invoke(frame, pc);
-                return false;
+                return match klass.bytecode.get_method("<clinit>", "()V") {
+                    Some(clinit) => {
+                        let frame = JavaFrame::new(klass.clone(), clinit);
+                        stack.invoke(frame, pc);
+                        false
+                    }
+                    None => true,
+                };
             }
         }
     }
@@ -149,6 +151,15 @@ pub fn execute(stack: &mut JavaStack) {
                 stack.store(opr, 1);
                 pc = pc + 1;
             }
+            // dup
+            0x59 => {
+                let current = stack.frames.last_mut().expect("Illegal operands stack:");
+                unsafe {
+                    let ptr = current.operands_ptr.sub(PTR_SIZE);
+                    current.operands_ptr.copy_from(ptr, PTR_SIZE);
+                }
+                pc = pc + 1;
+            }
             // iadd
             0x60 => {
                 let left = stack.pop();
@@ -242,8 +253,7 @@ pub fn execute(stack: &mut JavaStack) {
                 }
                 pc = pc + 3;
             }
-            // invokestatic
-            0xb8 => {
+            0xb7 => {
                 let method_idx = (stack.get_code(pc + 1) as U2) << 8 | stack.get_code(pc + 2) as U2;
                 let klass = stack
                     .frames
@@ -252,6 +262,7 @@ pub fn execute(stack: &mut JavaStack) {
                     .klass
                     .clone();
                 let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
+                // TODO
                 let klass = find_class!(c).expect("ClassNotFoundException");
                 if !ensure_initialized(stack, klass.clone(), pc) {
                     pc = 0;
@@ -265,6 +276,53 @@ pub fn execute(stack: &mut JavaStack) {
                     // TODO
                     panic!("NoSuchMethodException");
                 }
+            }
+            // invokestatic
+            0xb8 => {
+                let method_idx = (stack.get_code(pc + 1) as U2) << 8 | stack.get_code(pc + 2) as U2;
+                let klass = stack
+                    .frames
+                    .last()
+                    .expect("Illegal class file")
+                    .klass
+                    .clone();
+                let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
+                // TODO
+                let klass = find_class!(c).expect("ClassNotFoundException");
+                if !ensure_initialized(stack, klass.clone(), pc) {
+                    pc = 0;
+                    continue;
+                }
+                if let Some(ref method) = klass.bytecode.get_method(m, t) {
+                    let new_frame = JavaFrame::new(klass, Arc::clone(method));
+                    stack.invoke(new_frame, pc + 3);
+                    pc = 0;
+                } else {
+                    // TODO
+                    panic!("NoSuchMethodException");
+                }
+            }
+            // new
+            0xbb => {
+                let class_index =
+                    (stack.get_code(pc + 1) as U2) << 8 | stack.get_code(pc + 2) as U2;
+                let klass = stack
+                    .frames
+                    .last()
+                    .expect("Illegal class file")
+                    .klass
+                    .clone();
+                let class_name = klass.bytecode.constant_pool.get_str(class_index);
+                // TODO
+                let klass = find_class!(class_name).expect("ClassNotFoundException");
+                if !ensure_initialized(stack, klass.clone(), pc) {
+                    pc = 0;
+                    continue;
+                }
+                let (obj, size) = jvm_heap!().allocate(&klass);
+                let v = unsafe { transmute::<u32, Slot>(obj) };
+                stack.push(&v);
+                pc = pc + 3;
             }
             _ => panic!(format!(
                 "Instruction {:?} not implemented yet.",

@@ -14,5 +14,6 @@ public class Sum {
             sum += i;
         }
 	HelloWorld.say(1, sum);
+	World world0 = new World();
     }
 }
