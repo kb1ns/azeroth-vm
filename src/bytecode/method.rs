@@ -56,12 +56,20 @@ impl Traveler<Method> for Method {
     }
 }
 
+pub type CodeSegment = (
+    U2,
+    U2,
+    Arc<Vec<u8>>,
+    Arc<Vec<ExceptionHandler>>,
+    Arc<Attributes>,
+);
+
 impl Method {
-    pub fn get_code(&self) -> Option<Attribute> {
+    pub fn get_code(&self) -> Option<CodeSegment> {
         for attr in &self.attributes {
             match attr {
                 Attribute::Code(stacks, locals, code, exception, attribute) => {
-                    return Some(Attribute::Code(
+                    return Some((
                         *stacks,
                         *locals,
                         Arc::clone(code),
@@ -77,8 +85,8 @@ impl Method {
         return None;
     }
 
-    pub fn get_name_and_descriptor(&self) -> (String, String, U2) {
-        (self.name.clone(), self.descriptor.clone(), self.access_flag)
+    pub fn get_name_and_descriptor(&self) -> (&str, &str, U2) {
+        (self.name.as_ref(), self.descriptor.as_ref(), self.access_flag)
     }
 
     pub fn is_static(&self) -> bool {
