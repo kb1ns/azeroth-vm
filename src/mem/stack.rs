@@ -24,7 +24,7 @@ impl JavaStack {
 
     pub fn has_next(&self, pc: usize) -> bool {
         match self.frames.last() {
-            Some(ref frame) => pc < frame.code.len(),
+            Some(ref frame) => pc < frame.method.get_code().expect("").2.len(),
             None => false,
         }
     }
@@ -33,9 +33,9 @@ impl JavaStack {
         self.frames.is_empty()
     }
 
-    pub fn invoke(&mut self, mut frame: JavaFrame, pc: usize) {
+    pub fn invoke(&mut self, mut frame: JavaFrame, pc: usize) -> usize {
         if !self.is_empty() {
-            let (_, ref descriptor, access_flag) = &frame.current_method;
+            let (_, descriptor, access_flag) = &frame.method.get_name_and_descriptor();
             let (params, _) = interpreter::resolve_method_descriptor(descriptor);
             let mut slots: usize = params
                 .into_iter()
@@ -44,8 +44,12 @@ impl JavaStack {
                     _ => 1,
                 })
                 .sum();
-            if access_flag & METHOD_ACC_STATIC != METHOD_ACC_STATIC {
+            if !frame.method.is_static() {
                 slots = slots + 1;
+            }
+            if frame.method.is_native() {
+                // TODO native invokcation not implemented yet, return the pc directly
+                return pc;
             }
             let current = self.frames.last_mut().expect("Won't happend");
             unsafe {
@@ -57,12 +61,13 @@ impl JavaStack {
             frame.pc = pc;
         }
         self.frames.push(frame);
+        0
     }
 
     pub fn backtrack(&mut self) -> usize {
         let frame = self.frames.pop().expect("Illegal operands stack: ");
         if !self.is_empty() {
-            let (_, ref descriptor, _) = &frame.current_method;
+            let (_, descriptor, _) = &frame.method.get_name_and_descriptor();
             let (_, ret) = interpreter::resolve_method_descriptor(descriptor);
             let slots: usize = match ret.as_ref() {
                 "D" | "J" => 2,
@@ -80,8 +85,8 @@ impl JavaStack {
         frame.pc
     }
 
-    pub fn get_code(&self, pc: usize) -> u8 {
-        self.frames.last().expect("Illegal class file").code[pc]
+    pub fn code_at(&self, pc: usize) -> u8 {
+        self.frames.last().expect("Illegal class file").code_at(pc)
     }
 
     pub fn load(&mut self, offset: usize, count: usize) {
@@ -166,45 +171,59 @@ pub struct JavaFrame {
     operands: Vec<u8>,
     pub operands_ptr: *mut u8,
     pub klass: Arc<Klass>,
-    pub code: Arc<Vec<u8>>,
-    pub exception_handlers: Arc<Vec<ExceptionHandler>>,
-    pub current_method: (String, String, U2),
+    pub method: Arc<Method>,
     pub pc: usize,
 }
 
 impl JavaFrame {
-    pub fn new(class: Arc<Klass>, method: Arc<Method>) -> JavaFrame {
-        let code_attribute = method
-            .get_code()
-            .expect("abstract method or interface not allowed");
-        if let Attribute::Code(stacks, locals, ref code, ref exception, _) = code_attribute {
-            let locals = vec![0u8; PTR_SIZE * locals as usize];
-            let mut operands = vec![0u8; PTR_SIZE * stacks as usize];
-            let operands_ptr = operands.as_mut_ptr();
-            return JavaFrame {
-                locals: locals,
-                operands: operands,
-                operands_ptr: operands_ptr,
-                klass: class,
-                code: Arc::clone(code),
-                exception_handlers: Arc::clone(exception),
-                current_method: method.get_name_and_descriptor(),
-                pc: 0,
-            };
+    pub fn new(klass: Arc<Klass>, method: Arc<Method>) -> JavaFrame {
+        match method.get_code() {
+            None => {
+                if !method.is_native() {
+                    panic!("Abstract method or interface not allow here");
+                }
+                // TODO native method
+                let mut operands: Vec<u8> = vec![];
+                let operands_ptr = operands.as_mut_ptr();
+                JavaFrame {
+                    locals: vec![],
+                    operands: operands,
+                    operands_ptr: operands_ptr,
+                    klass: klass,
+                    method: Arc::clone(&method),
+                    pc: 0,
+                }
+            }
+            Some((stacks, locals, _, _, _)) => {
+                let mut operands = vec![0u8; PTR_SIZE * stacks as usize];
+                let operands_ptr = operands.as_mut_ptr();
+                JavaFrame {
+                    locals: vec![0u8; PTR_SIZE * locals as usize],
+                    operands: operands,
+                    operands_ptr: operands_ptr,
+                    klass: klass,
+                    method: Arc::clone(&method),
+                    pc: 0,
+                }
+            }
         }
-        panic!("won't happend");
+    }
+
+    pub fn code_at(&self, pc: usize) -> u8 {
+        self.method.get_code().expect("").2[pc]
     }
 
     pub fn dump(&self, pc: usize) {
+        let (name, descriptor, _) = self.method.get_name_and_descriptor();
         println!("current class: {:?}", self.klass.bytecode.get_name());
-        println!(
-            "current method: {:?} {:?}",
-            self.current_method.0, self.current_method.1
-        );
+        println!("current method: {:?} {:?}", name, descriptor);
         println!("locals: {:02x?}", self.locals);
         println!("stacks: {:02x?}", self.operands);
         println!("pc: {:?}", pc);
-        println!("instructions: {:02x?}\n", &self.code);
+        println!(
+            "instructions: {:02x?}\n",
+            self.method.get_code().expect("").2
+        );
     }
 }
 

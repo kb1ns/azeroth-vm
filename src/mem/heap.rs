@@ -50,6 +50,22 @@ impl Heap {
             });
         }
     }
+
+    pub fn allocate(&self, klass: &Arc<Klass>) -> (Ref, u32) {
+        let header = Klass::new_instance(klass);
+        let mut v = unsafe { transmute::<ObjectHeader, [u8; size_of::<ObjectHeader>()]>(header) };
+        let ptr = v.as_mut_ptr();
+        let mut eden = self.eden.write().unwrap();
+        // TODO ensure enough space to allocate object
+        unsafe {
+            let eden_ptr = self.base.add(eden.offset as usize);
+            eden_ptr.copy_from(ptr, size_of::<ObjectHeader>());
+        }
+        let addr = eden.offset;
+        let instance_size = size_of::<ObjectHeader>() as u32 + (&klass).instance_size();
+        eden.offset = eden.offset + instance_size;
+        (addr, instance_size)
+    }
 }
 
 pub static mut HEAP: Option<Heap> = None;
@@ -64,23 +80,6 @@ macro_rules! jvm_heap {
             }
         }
     };
-}
-
-pub fn allocate(klass: &Arc<Klass>) -> (Ref, u32) {
-    let header = Klass::new_instance(klass);
-    let mut v = unsafe { transmute::<ObjectHeader, [u8; size_of::<ObjectHeader>()]>(header) };
-    let ptr = v.as_mut_ptr();
-    let mut eden = jvm_heap!().eden.write().unwrap();
-    // TODO ensure enough space to allocate object
-    let base_ptr = jvm_heap!().base;
-    unsafe {
-        let eden_ptr = base_ptr.add(eden.offset as usize);
-        eden_ptr.copy_from(ptr, size_of::<ObjectHeader>());
-    }
-    let addr = eden.offset;
-    let instance_size = size_of::<ObjectHeader>() as u32 + (&klass).instance_size();
-    eden.offset = eden.offset + instance_size;
-    (addr, instance_size)
 }
 
 #[test]

@@ -1,5 +1,5 @@
 
-public class HelloWorld extends World {
+public class HelloWorld {
 
     public static int count = 0;
 
