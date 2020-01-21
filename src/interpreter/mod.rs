@@ -158,6 +158,24 @@ pub fn execute(stack: &mut JavaStack) {
                 stack.store(opr, 1);
                 pc = pc + 1;
             }
+            // lstore 0 ~ 3
+            0x3f..=0x42 => {
+                let opr = stack.code_at(pc) as usize - 0x3f;
+                stack.store(opr, 2);
+                pc = pc + 2;
+            }
+            // fstore 0 ~ 3
+            0x43..=0x46 => {
+                let opr = stack.code_at(pc) as usize - 0x43;
+                stack.store(opr, 1);
+                pc = pc + 1;
+            }
+            // dstore 0 ~ 3
+            0x47..=0x4a => {
+                let opr = stack.code_at(pc) as usize - 0x47;
+                stack.store(opr, 2);
+                pc = pc + 2;
+            }
             // astore 0 ~ 3
             0x4b..=0x4e => {
                 let opr = stack.code_at(pc) as usize - 0x4b;
