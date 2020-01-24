@@ -1,7 +1,5 @@
 use bytecode::atom::*;
-use bytecode::attribute::{Attribute, ExceptionHandler};
 use bytecode::method::Method;
-use bytecode::*;
 use interpreter;
 use mem::klass::Klass;
 use mem::{Slot, WideSlot, LONG_NULL, NULL, PTR_SIZE};

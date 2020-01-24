@@ -1,7 +1,6 @@
-use super::Traveler;
+use bytecode::Traveler;
 use bytecode::atom::*;
-use std::mem;
-use std::str;
+use std::mem::transmute;
 
 #[derive(Debug)]
 pub struct ConstantPool(Vec<ConstantItem>);
@@ -197,29 +196,29 @@ impl Traveler<ConstantPool> for ConstantPool {
                         buf.push(U1::read(seq, None));
                     }
                     // TODO MUTF-8 encode
-                    let s = str::from_utf8(&buf).unwrap();
+                    let s = std::str::from_utf8(&buf).unwrap();
                     ConstantItem::UTF8(s.to_string())
                 }
                 INTEGER_TAG => {
                     let v = U4::read(seq, None);
-                    let i: i32 = unsafe { mem::transmute::<u32, i32>(v) };
+                    let i: i32 = unsafe { transmute::<u32, i32>(v) };
                     ConstantItem::Integer(i)
                 }
                 FLOAT_TAG => {
                     let v = U4::read(seq, None);
-                    let i: f32 = unsafe { mem::transmute::<u32, f32>(v) };
+                    let i: f32 = unsafe { transmute::<u32, f32>(v) };
                     ConstantItem::Float(i)
                 }
                 LONG_TAG => {
                     let v = U8::read(seq, None);
-                    let i: i64 = unsafe { mem::transmute::<u64, i64>(v) };
+                    let i: i64 = unsafe { transmute::<u64, i64>(v) };
                     offset = offset + 1;
                     pool.push(ConstantItem::PADDING);
                     ConstantItem::Long(i)
                 }
                 DOUBLE_TAG => {
                     let v = U8::read(seq, None);
-                    let i: f64 = unsafe { mem::transmute::<u64, f64>(v) };
+                    let i: f64 = unsafe { transmute::<u64, f64>(v) };
                     offset = offset + 1;
                     pool.push(ConstantItem::PADDING);
                     ConstantItem::Double(i)

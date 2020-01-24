@@ -122,6 +122,11 @@ pub fn execute(stack: &mut JavaStack) {
                 );
                 pc = pc + 3;
             }
+            // ldc
+            // 0x12 => {
+            //     let opr = stack.code_at(pc + 1);
+            //     let frame = &stack.frames.last_mut().expect("Won't happend");
+            // }
             // iload 0 ~ 3
             0x1a..=0x1d => {
                 let opr = stack.code_at(pc) as usize - 0x1a;
@@ -180,6 +185,16 @@ pub fn execute(stack: &mut JavaStack) {
             0x4b..=0x4e => {
                 let opr = stack.code_at(pc) as usize - 0x4b;
                 stack.store(opr, 1);
+                pc = pc + 1;
+            }
+            // pop
+            0x57 => {
+                stack.pop();
+                pc = pc + 1;
+            }
+            // pop2
+            0x58 => {
+                stack.pop_w();
                 pc = pc + 1;
             }
             // dup
@@ -285,6 +300,7 @@ pub fn execute(stack: &mut JavaStack) {
                 }
                 pc = pc + 3;
             }
+            // invokespecial
             0xb7 => {
                 let method_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
                 let klass = stack
@@ -326,7 +342,7 @@ pub fn execute(stack: &mut JavaStack) {
                 }
                 if let Some(ref method) = klass.bytecode.get_method(m, t) {
                     // TODO
-                    if !method.is_static()  {
+                    if !method.is_static() {
                         panic!("");
                     }
                     let new_frame = JavaFrame::new(klass, Arc::clone(method));
@@ -338,8 +354,7 @@ pub fn execute(stack: &mut JavaStack) {
             }
             // new
             0xbb => {
-                let class_index =
-                    (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
+                let class_index = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
                 let klass = stack
                     .frames
                     .last()

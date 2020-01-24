@@ -55,14 +55,19 @@ impl Heap {
         let header = Klass::new_instance(klass);
         let mut v = unsafe { transmute::<ObjectHeader, [u8; size_of::<ObjectHeader>()]>(header) };
         let ptr = v.as_mut_ptr();
+        let instance_size = size_of::<ObjectHeader>() as u32 + (&klass).instance_size();
         let mut eden = self.eden.write().unwrap();
         // TODO ensure enough space to allocate object
+        if eden.offset + instance_size >= eden.limit {
+            // TODO gc
+            panic!("OutOfMemoryError");
+        }
         unsafe {
             let eden_ptr = self.base.add(eden.offset as usize);
             eden_ptr.copy_from(ptr, size_of::<ObjectHeader>());
         }
         let addr = eden.offset;
-        let instance_size = size_of::<ObjectHeader>() as u32 + (&klass).instance_size();
+        // TODO alignment
         eden.offset = eden.offset + instance_size;
         (addr, instance_size)
     }
