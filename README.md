@@ -1,9 +1,6 @@
 # Yet Another Toy JVM(work-in-progress)
 
-Learn how JVM works. Just a few directives are currently implemented to run hello-world.     
-
-try:    
-
+  
 - `export JAVA_HOME=${...}`
 - `javac java/Sum.java`
 - `cargo build`
