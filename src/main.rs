@@ -1,9 +1,4 @@
-extern crate argparse;
-extern crate azerothvm;
-extern crate regex;
-
-use azerothvm::mem::metaspace::CLASSES;
-use azerothvm::*;
+use azerothvm::{mem::metaspace::CLASSES, *};
 
 fn main() {
     match std::env::current_dir() {

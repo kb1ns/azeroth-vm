@@ -1,6 +1,7 @@
 [package]
 name = "azeroth-vm"
 version = "0.1.0"
+edition = "2018"
 authors = ["archerfeel <archerfeel@gmail.com>"]
 
 [dependencies]

@@ -1,7 +1,4 @@
-use super::constant_pool::ConstantPool;
-use super::Traveler;
-use bytecode::atom::*;
-use bytecode::attribute::*;
+use super::{atom::*, attribute::*, constant_pool::ConstantPool, Traveler};
 
 use std::sync::Arc;
 

@@ -1,7 +1,4 @@
-
-use super::constant_pool::ConstantPool;
-use super::Traveler;
-use bytecode::atom::*;
+use super::{atom::*, constant_pool::ConstantPool, Traveler};
 use std::sync::Arc;
 
 pub type Attributes = Vec<Attribute>;
@@ -15,7 +12,13 @@ pub struct ExceptionHandler {
 
 pub enum Attribute {
     ConstantValue(Arc<Vec<U1>>),
-    Code(U2, U2, Arc<Vec<u8>>, Arc<Vec<ExceptionHandler>>, Arc<Attributes>),
+    Code(
+        U2,
+        U2,
+        Arc<Vec<u8>>,
+        Arc<Vec<ExceptionHandler>>,
+        Arc<Attributes>,
+    ),
     StackMapTable(Arc<Vec<U1>>),
     Exceptions(Arc<Vec<U1>>),
     BootstrapMethods(Arc<Vec<U1>>),

@@ -1,5 +1,4 @@
-use super::constant_pool::ConstantPool;
-use super::Traveler;
+use super::{constant_pool::ConstantPool, Traveler};
 use std::mem::transmute;
 
 pub type U1 = u8;

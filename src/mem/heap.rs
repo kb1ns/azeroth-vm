@@ -1,8 +1,7 @@
-extern crate base64;
-
-use self::base64::decode;
-use mem::klass::{Klass, ObjectHeader};
-use mem::*;
+use crate::mem::{
+    klass::{Instance, Klass, ObjectHeader},
+    *,
+};
 use std::mem::{size_of, transmute};
 use std::sync::{Arc, RwLock};
 
@@ -31,7 +30,6 @@ impl Region {
 
 impl Heap {
     pub fn init(old_size: u32, survivor_size: u32, eden_size: u32) {
-        // TODO
         let mut data =
             Vec::<u8>::with_capacity((old_size + eden_size + survivor_size * 2) as usize);
         let ptr = data.as_mut_ptr();
@@ -51,26 +49,37 @@ impl Heap {
         }
     }
 
-    pub fn allocate(&self, klass: &Arc<Klass>) -> (Ref, u32) {
-        let header = Klass::new_instance(klass);
-        let mut v = unsafe { transmute::<ObjectHeader, [u8; size_of::<ObjectHeader>()]>(header) };
-        let ptr = v.as_mut_ptr();
-        let instance_size = size_of::<ObjectHeader>() as u32 + (&klass).instance_size();
+    pub fn allocate_object(&self, klass: &Arc<Klass>) -> Instance {
+        let payload_len = klass.payload_len();
+        let instance_len = size_of::<ObjectHeader>() + payload_len;
         let mut eden = self.eden.write().unwrap();
-        // TODO ensure enough space to allocate object
-        if eden.offset + instance_size >= eden.limit {
+        // ensure enough space to allocate object
+        if eden.offset + instance_len as u32 >= eden.limit {
             // TODO gc
             panic!("OutOfMemoryError");
         }
+        let header = ObjectHeader::new_instance(klass);
         unsafe {
             let eden_ptr = self.base.add(eden.offset as usize);
-            eden_ptr.copy_from(ptr, size_of::<ObjectHeader>());
+            // copy object header
+            let header_ptr =
+                transmute::<ObjectHeader, [u8; size_of::<ObjectHeader>()]>(header.clone())
+                    .as_mut_ptr();
+            eden_ptr.copy_from(header_ptr, size_of::<ObjectHeader>());
+            let instance = Instance::new(
+                header,
+                eden_ptr.add(size_of::<ObjectHeader>()),
+                payload_len,
+                eden.offset,
+            );
+            eden.offset = eden.offset + instance_len as u32;
+            instance
         }
-        let addr = eden.offset;
-        // TODO alignment
-        eden.offset = eden.offset + instance_size;
-        (addr, instance_size)
     }
+
+    // pub fn allocate_array(&self, klass: &Arc<Klass>, size: usize) -> (Ref, u32){
+
+    // }
 }
 
 pub static mut HEAP: Option<Heap> = None;
@@ -87,17 +96,25 @@ macro_rules! jvm_heap {
     };
 }
 
-#[test]
-pub fn test() {
-    Heap::init(10 * 1024 * 1024, 1024 * 1024, 1024 * 1024);
-    let java_lang_object = "yv66vgAAADQATgcAMQoAAQAyCgARADMKADQANQoAAQA2CAA3CgARADgKADkAOgoAAQA7BwA8CAA9CgAKAD4DAA9CPwgAPwoAEQBACgARAEEHAEIBAAY8aW5pdD4BAAMoKVYBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQAPcmVnaXN0ZXJOYXRpdmVzAQAIZ2V0Q2xhc3MBABMoKUxqYXZhL2xhbmcvQ2xhc3M7AQAJU2lnbmF0dXJlAQAWKClMamF2YS9sYW5nL0NsYXNzPCo+OwEACGhhc2hDb2RlAQADKClJAQAGZXF1YWxzAQAVKExqYXZhL2xhbmcvT2JqZWN0OylaAQANU3RhY2tNYXBUYWJsZQEABWNsb25lAQAUKClMamF2YS9sYW5nL09iamVjdDsBAApFeGNlcHRpb25zBwBDAQAIdG9TdHJpbmcBABQoKUxqYXZhL2xhbmcvU3RyaW5nOwEABm5vdGlmeQEACW5vdGlmeUFsbAEABHdhaXQBAAQoSilWBwBEAQAFKEpJKVYBAAhmaW5hbGl6ZQcARQEACDxjbGluaXQ+AQAKU291cmNlRmlsZQEAC09iamVjdC5qYXZhAQAXamF2YS9sYW5nL1N0cmluZ0J1aWxkZXIMABIAEwwAFwAYBwBGDABHACUMAEgASQEAAUAMABsAHAcASgwASwBMDAAkACUBACJqYXZhL2xhbmcvSWxsZWdhbEFyZ3VtZW50RXhjZXB0aW9uAQAZdGltZW91dCB2YWx1ZSBpcyBuZWdhdGl2ZQwAEgBNAQAlbmFub3NlY29uZCB0aW1lb3V0IHZhbHVlIG91dCBvZiByYW5nZQwAKAApDAAWABMBABBqYXZhL2xhbmcvT2JqZWN0AQAkamF2YS9sYW5nL0Nsb25lTm90U3VwcG9ydGVkRXhjZXB0aW9uAQAeamF2YS9sYW5nL0ludGVycnVwdGVkRXhjZXB0aW9uAQATamF2YS9sYW5nL1Rocm93YWJsZQEAD2phdmEvbGFuZy9DbGFzcwEAB2dldE5hbWUBAAZhcHBlbmQBAC0oTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL2xhbmcvU3RyaW5nQnVpbGRlcjsBABFqYXZhL2xhbmcvSW50ZWdlcgEAC3RvSGV4U3RyaW5nAQAVKEkpTGphdmEvbGFuZy9TdHJpbmc7AQAVKExqYXZhL2xhbmcvU3RyaW5nOylWACEAEQAAAAAAAAAOAAEAEgATAAEAFAAAABkAAAABAAAAAbEAAAABABUAAAAGAAEAAAAlAQoAFgATAAABEQAXABgAAQAZAAAAAgAaAQEAGwAcAAAAAQAdAB4AAQAUAAAALgACAAIAAAALKiumAAcEpwAEA6wAAAACABUAAAAGAAEAAACVAB8AAAAFAAIJQAEBBAAgACEAAQAiAAAABAABACMAAQAkACUAAQAUAAAAPAACAAEAAAAkuwABWbcAAiq2AAO2AAS2AAUSBrYABSq2AAe4AAi2AAW2AAmwAAAAAQAVAAAABgABAAAA7AERACYAEwAAAREAJwATAAABEQAoACkAAQAiAAAABAABACoAEQAoACsAAgAUAAAAcgAEAAQAAAAyHwmUnAANuwAKWRILtwAMvx2bAAkdEg2kAA27AApZEg63AAy/HZ4ABx8KYUAqH7YAD7EAAAACABUAAAAiAAgAAAG/AAYBwAAQAcMAGgHEACQByAAoAckALAHMADEBzQAfAAAABgAEEAkJBwAiAAAABAABACoAEQAoABMAAgAUAAAAIgADAAEAAAAGKgm2AA+xAAAAAQAVAAAACgACAAAB9gAFAfcAIgAAAAQAAQAqAAQALAATAAIAFAAAABkAAAABAAAAAbEAAAABABUAAAAGAAEAAAIrACIAAAAEAAEALQAIAC4AEwABABQAAAAgAAAAAAAAAAS4ABCxAAAAAQAVAAAACgACAAAAKQADACoAAQAvAAAAAgAw";
-    let class_vec = decode(java_lang_object).unwrap();
-    let bytecode = Class::from_vec(class_vec);
-    let klass = Klass::new(bytecode, metaspace::Classloader::ROOT, None);
-    let klass = Arc::new(klass);
-    let (offset, size) = allocate(&klass);
-    let payload_size = (&klass).instance_size();
-    assert_eq!(size_of::<ObjectHeader>() as u32 + payload_size, size);
-    let (offset, size) = allocate(&klass);
-    assert_eq!(offset, size);
+#[cfg(test)]
+mod test {
+
+    use crate::mem::heap;
+
+    #[test]
+    pub fn test() {
+        super::Heap::init(10 * 1024 * 1024, 1024 * 1024, 1024 * 1024);
+        let java_lang_object = "yv66vgAAADQATgcAMQoAAQAyCgARADMKADQANQoAAQA2CAA3CgARADgKADkAOgoAAQA7BwA8CAA9CgAKAD4DAA9CPwgAPwoAEQBACgARAEEHAEIBAAY8aW5pdD4BAAMoKVYBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQAPcmVnaXN0ZXJOYXRpdmVzAQAIZ2V0Q2xhc3MBABMoKUxqYXZhL2xhbmcvQ2xhc3M7AQAJU2lnbmF0dXJlAQAWKClMamF2YS9sYW5nL0NsYXNzPCo+OwEACGhhc2hDb2RlAQADKClJAQAGZXF1YWxzAQAVKExqYXZhL2xhbmcvT2JqZWN0OylaAQANU3RhY2tNYXBUYWJsZQEABWNsb25lAQAUKClMamF2YS9sYW5nL09iamVjdDsBAApFeGNlcHRpb25zBwBDAQAIdG9TdHJpbmcBABQoKUxqYXZhL2xhbmcvU3RyaW5nOwEABm5vdGlmeQEACW5vdGlmeUFsbAEABHdhaXQBAAQoSilWBwBEAQAFKEpJKVYBAAhmaW5hbGl6ZQcARQEACDxjbGluaXQ+AQAKU291cmNlRmlsZQEAC09iamVjdC5qYXZhAQAXamF2YS9sYW5nL1N0cmluZ0J1aWxkZXIMABIAEwwAFwAYBwBGDABHACUMAEgASQEAAUAMABsAHAcASgwASwBMDAAkACUBACJqYXZhL2xhbmcvSWxsZWdhbEFyZ3VtZW50RXhjZXB0aW9uAQAZdGltZW91dCB2YWx1ZSBpcyBuZWdhdGl2ZQwAEgBNAQAlbmFub3NlY29uZCB0aW1lb3V0IHZhbHVlIG91dCBvZiByYW5nZQwAKAApDAAWABMBABBqYXZhL2xhbmcvT2JqZWN0AQAkamF2YS9sYW5nL0Nsb25lTm90U3VwcG9ydGVkRXhjZXB0aW9uAQAeamF2YS9sYW5nL0ludGVycnVwdGVkRXhjZXB0aW9uAQATamF2YS9sYW5nL1Rocm93YWJsZQEAD2phdmEvbGFuZy9DbGFzcwEAB2dldE5hbWUBAAZhcHBlbmQBAC0oTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL2xhbmcvU3RyaW5nQnVpbGRlcjsBABFqYXZhL2xhbmcvSW50ZWdlcgEAC3RvSGV4U3RyaW5nAQAVKEkpTGphdmEvbGFuZy9TdHJpbmc7AQAVKExqYXZhL2xhbmcvU3RyaW5nOylWACEAEQAAAAAAAAAOAAEAEgATAAEAFAAAABkAAAABAAAAAbEAAAABABUAAAAGAAEAAAAlAQoAFgATAAABEQAXABgAAQAZAAAAAgAaAQEAGwAcAAAAAQAdAB4AAQAUAAAALgACAAIAAAALKiumAAcEpwAEA6wAAAACABUAAAAGAAEAAACVAB8AAAAFAAIJQAEBBAAgACEAAQAiAAAABAABACMAAQAkACUAAQAUAAAAPAACAAEAAAAkuwABWbcAAiq2AAO2AAS2AAUSBrYABSq2AAe4AAi2AAW2AAmwAAAAAQAVAAAABgABAAAA7AERACYAEwAAAREAJwATAAABEQAoACkAAQAiAAAABAABACoAEQAoACsAAgAUAAAAcgAEAAQAAAAyHwmUnAANuwAKWRILtwAMvx2bAAkdEg2kAA27AApZEg63AAy/HZ4ABx8KYUAqH7YAD7EAAAACABUAAAAiAAgAAAG/AAYBwAAQAcMAGgHEACQByAAoAckALAHMADEBzQAfAAAABgAEEAkJBwAiAAAABAABACoAEQAoABMAAgAUAAAAIgADAAEAAAAGKgm2AA+xAAAAAQAVAAAACgACAAAB9gAFAfcAIgAAAAQAAQAqAAQALAATAAIAFAAAABkAAAABAAAAAbEAAAABABUAAAAGAAEAAAIrACIAAAAEAAEALQAIAC4AEwABABQAAAAgAAAAAAAAAAS4ABCxAAAAAQAVAAAACgACAAAAKQADACoAAQAvAAAAAgAw";
+        let class_vec = base64::decode(java_lang_object).unwrap();
+        let bytecode = super::Class::from_vec(class_vec);
+        let klass = super::Klass::new(bytecode, super::metaspace::Classloader::ROOT, None);
+        let klass = super::Arc::new(klass);
+        let obj0 = jvm_heap!().allocate_object(&klass);
+        assert_eq!(0, obj0.location);
+        let obj1 = jvm_heap!().allocate_object(&klass);
+        assert_eq!(
+            super::size_of::<super::ObjectHeader>() + klass.payload_len(),
+            obj1.location as usize
+        );
+    }
 }

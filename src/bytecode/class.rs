@@ -1,11 +1,4 @@
-use bytecode::atom::*;
-use bytecode::attribute::*;
-use bytecode::constant_pool::*;
-use bytecode::field::*;
-use bytecode::interface::*;
-use bytecode::method::*;
-use bytecode::*;
-
+use super::{atom::*, attribute::*, constant_pool::*, field::*, interface::*, method::*, *};
 use std::sync::Arc;
 
 pub struct Class {
@@ -59,7 +52,7 @@ impl Class {
     pub fn get_field(&self, field_name: &str, field_descriptor: &str) -> Option<Arc<Field>> {
         for ref f in &self.fields {
             if f.name == field_name && f.descriptor == field_descriptor {
-                return Some(Arc::clone(f))
+                return Some(Arc::clone(f));
             }
         }
         None

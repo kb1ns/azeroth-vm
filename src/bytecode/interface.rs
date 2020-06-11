@@ -1,6 +1,4 @@
-use super::constant_pool::ConstantPool;
-use super::Traveler;
-use bytecode::atom::*;
+use super::{atom::*, constant_pool::ConstantPool, Traveler};
 
 pub type Interfaces = Vec<String>;
 

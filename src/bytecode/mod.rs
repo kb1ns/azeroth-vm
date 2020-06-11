@@ -6,8 +6,8 @@ pub mod field;
 pub mod interface;
 pub mod method;
 
-use bytecode::constant_pool::ConstantPool;
-use bytecode::atom::*;
+use atom::*;
+use constant_pool::ConstantPool;
 
 trait Traveler<T> {
     fn read<I>(seq: &mut I, constants: Option<&ConstantPool>) -> T

@@ -1,6 +1,12 @@
 
 public class Sum {
 
+    private int a;
+
+    public void incr() {
+        a = a + 1;
+    }
+
     static int sum;
 
     static {
@@ -11,10 +17,11 @@ public class Sum {
     }
 
     public static void main(String[] args) {
-        int a = sum;
         for (int i = 0; i < 5; i++) {
-	    new HelloWorld();
-	    HelloWorld.say(1, sum);
+            new HelloWorld();
+            Sum s = new Sum();
+            s.incr();
+            HelloWorld.say(1, sum);
         }
     }
 }

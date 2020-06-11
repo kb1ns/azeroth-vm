@@ -1,8 +1,6 @@
-use bytecode::atom::*;
-use bytecode::method::Method;
-use interpreter;
-use mem::klass::Klass;
-use mem::{Slot, WideSlot, LONG_NULL, NULL, PTR_SIZE};
+use crate::bytecode::{atom::*, method::Method};
+use crate::interpreter;
+use crate::mem::{klass::Klass, *};
 use std::sync::Arc;
 
 pub struct JavaStack {

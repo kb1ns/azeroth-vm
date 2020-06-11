@@ -1,5 +1,4 @@
-use bytecode::Traveler;
-use bytecode::atom::*;
+use super::{atom::*, Traveler};
 use std::mem::transmute;
 
 #[derive(Debug)]

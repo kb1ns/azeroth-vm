@@ -1,10 +1,5 @@
-use bytecode::atom::*;
-use bytecode::*;
-use mem::heap::*;
-use mem::klass::*;
-use mem::metaspace::*;
-use mem::stack::*;
-use mem::*;
+use crate::bytecode::{atom::*, *};
+use crate::mem::{heap::*, klass::*, stack::*, metaspace::*, *};
 use std::mem::transmute;
 use std::sync::atomic::*;
 use std::sync::Arc;
@@ -127,6 +122,19 @@ pub fn execute(stack: &mut JavaStack) {
             //     let opr = stack.code_at(pc + 1);
             //     let frame = &stack.frames.last_mut().expect("Won't happend");
             // }
+            // iload/fload
+		  	    0x15 | 0x17 => {
+                let opr = stack.code_at(pc + 1) as usize;
+                stack.load(opr, 1);
+                pc = pc + 2;
+            }
+			      // lload/dload
+		  	    0x16 | 0x18 => {
+                let opr = stack.code_at(pc + 1) as usize;
+                stack.load(opr, 8);
+                pc = pc + 2;
+            }
+
             // iload 0 ~ 3
             0x1a..=0x1d => {
                 let opr = stack.code_at(pc) as usize - 0x1a;
@@ -368,8 +376,8 @@ pub fn execute(stack: &mut JavaStack) {
                     pc = 0;
                     continue;
                 }
-                let (obj, size) = jvm_heap!().allocate(&klass);
-                let v = unsafe { transmute::<u32, Slot>(obj) };
+                let obj = jvm_heap!().allocate_object(&klass);
+                let v = unsafe { transmute::<u32, Slot>(obj.location) };
                 stack.push(&v);
                 pc = pc + 3;
             }

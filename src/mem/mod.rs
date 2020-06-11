@@ -1,6 +1,7 @@
-use bytecode::class::Class;
+use crate::bytecode::class::Class;
+use crate::classpath::Classpath;
+
 use chashmap::CHashMap;
-use classpath::Classpath;
 use regex::Regex;
 
 #[macro_use]

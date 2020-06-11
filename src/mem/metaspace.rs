@@ -1,5 +1,4 @@
-use mem::klass::Klass;
-use mem::*;
+use crate::mem::{klass::Klass, *};
 use std::sync::Arc;
 
 pub struct ClassArena {

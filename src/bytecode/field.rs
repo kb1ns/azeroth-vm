@@ -1,8 +1,5 @@
-use bytecode::constant_pool::ConstantPool;
-use bytecode::Traveler;
-use bytecode::atom::*;
-use bytecode::attribute::*;
-use mem::Value;
+use super::{atom::*, attribute::*, constant_pool::ConstantPool, Traveler};
+use crate::mem::Value;
 use std::cell::Cell;
 use std::cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd};
 use std::sync::Arc;
@@ -21,7 +18,7 @@ pub struct Field {
 
 impl Field {
     /// B = Z = 1 < C = S = 2 < I = F = L = [ = 4 < J = D = 8
-    pub fn memory_size(&self) -> u8 {
+    pub fn memory_size(&self) -> usize {
         let ch = self.descriptor.chars().next().expect("");
         match ch {
             'B' | 'Z' => 1,
