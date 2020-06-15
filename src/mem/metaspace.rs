@@ -45,7 +45,7 @@ impl ClassArena {
         }
     }
 
-    fn define_class(&self, class_name: &str) -> Option<Class> {
+    fn parse_class(&self, class_name: &str) -> Option<Class> {
         if let Some(bytecode) = self.cp.find_app_class(class_name) {
             return Some(Class::from_vec(bytecode));
         }
@@ -64,7 +64,7 @@ impl ClassArena {
             .replace_all(class, "/")
             .into_owned();
         match self.classes.get(&class_name) {
-            None => match self.define_class(&class_name) {
+            None => match self.parse_class(&class_name) {
                 None => Err(class.to_owned()),
                 Some(k) => {
                     let superclass = (&k).get_super_class();
@@ -73,8 +73,15 @@ impl ClassArena {
                     } else {
                         None
                     };
+                    let ifs = (&k).get_interfaces();
+                    let mut interfaces: Vec<Arc<Klass>> = vec![];
+                    if !ifs.is_empty() {
+                        for i in ifs {
+                            interfaces.push(self.load_class(i)?);
+                        }
+                    }
                     // TODO classloader
-                    let klass = Arc::new(Klass::new(k, Classloader::ROOT, superclass));
+                    let klass = Arc::new(Klass::new(k, Classloader::ROOT, superclass, interfaces));
                     self.classes.insert_new(class_name, klass.clone());
                     Ok(klass)
                 }

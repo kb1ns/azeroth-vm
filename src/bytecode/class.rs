@@ -41,12 +41,7 @@ impl Class {
     }
 
     pub fn get_method(&self, method_name: &str, method_descriptor: &str) -> Option<Arc<Method>> {
-        for ref m in &self.methods {
-            if m.name == method_name && m.descriptor == method_descriptor {
-                return Some(Arc::clone(m));
-            }
-        }
-        None
+        self.methods.find(method_name, method_descriptor)
     }
 
     pub fn get_field(&self, field_name: &str, field_descriptor: &str) -> Option<Arc<Field>> {
@@ -64,5 +59,9 @@ impl Class {
 
     pub fn get_super_class(&self) -> &str {
         self.super_class_name.as_ref()
+    }
+
+    pub fn get_interfaces(&self) -> &Vec<String> {
+        self.interfaces.as_ref()
     }
 }

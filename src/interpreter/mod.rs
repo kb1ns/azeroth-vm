@@ -1,8 +1,10 @@
 use crate::bytecode::{atom::*, *};
-use crate::mem::{heap::*, klass::*, stack::*, metaspace::*, *};
+use crate::mem::{heap::*, klass::*, metaspace::*, stack::*, *};
 use std::mem::transmute;
 use std::sync::atomic::*;
 use std::sync::Arc;
+
+use log::trace;
 
 pub enum Return {
     Word(Slot),
@@ -22,7 +24,7 @@ fn ensure_initialized(stack: &mut JavaStack, klass: Arc<Klass>, pc: usize) -> bo
         if let Ok(_) = klass.mutex.try_lock() {
             if !klass.initialized.load(Ordering::Relaxed) {
                 klass.initialized.store(true, Ordering::Relaxed);
-                println!("init class {}", klass.bytecode.get_name());
+                trace!("init class {}", klass.bytecode.get_name());
                 let initialized = match klass.bytecode.get_method("<clinit>", "()V") {
                     Some(clinit) => {
                         let frame = JavaFrame::new(klass.clone(), clinit);
@@ -123,13 +125,13 @@ pub fn execute(stack: &mut JavaStack) {
             //     let frame = &stack.frames.last_mut().expect("Won't happend");
             // }
             // iload/fload
-		  	    0x15 | 0x17 => {
+            0x15 | 0x17 => {
                 let opr = stack.code_at(pc + 1) as usize;
                 stack.load(opr, 1);
                 pc = pc + 2;
             }
-			      // lload/dload
-		  	    0x16 | 0x18 => {
+            // lload/dload
+            0x16 | 0x18 => {
                 let opr = stack.code_at(pc + 1) as usize;
                 stack.load(opr, 8);
                 pc = pc + 2;
@@ -308,6 +310,51 @@ pub fn execute(stack: &mut JavaStack) {
                 }
                 pc = pc + 3;
             }
+            // getfield
+            0xb4 => {
+                let field_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
+                let frame = stack.frames.last().expect("Illegal class file");
+                let klass = frame.klass.clone();
+                let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
+                // TODO load class `c`, push `f` to operands according to the type `t`
+                let klass = find_class!(c).expect("ClassNotFoundException");
+                if !ensure_initialized(stack, klass.clone(), pc) {
+                    pc = 0;
+                    continue;
+                }
+                let objref = stack.pop();
+                if objref == NULL {
+                    // TODO
+                    panic!("NullPointerException");
+                }
+
+            }
+            // invokevirtual
+            0xb6 => {
+                let method_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
+                let klass = stack
+                    .frames
+                    .last()
+                    .expect("Illegal class file")
+                    .klass
+                    .clone();
+                let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
+                // TODO
+                let klass = find_class!(c).expect("ClassNotFoundException");
+                if !ensure_initialized(stack, klass.clone(), pc) {
+                    pc = 0;
+                    continue;
+                }
+                if let Some(method) = klass.bytecode.get_method(m, t) {
+                    let new_frame = JavaFrame::new(klass, method);
+                    pc = stack.invoke(new_frame, pc + 3);
+                } else if let Some(method) = klass.get_method_in_vtable(m, t) {
+                    let new_frame = JavaFrame::new(klass, method);
+                    pc = stack.invoke(new_frame, pc + 3);
+                } else {
+                    panic!("NoSuchMethodError");
+                }
+            }
             // invokespecial
             0xb7 => {
                 let method_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
@@ -324,14 +371,15 @@ pub fn execute(stack: &mut JavaStack) {
                     pc = 0;
                     continue;
                 }
-                if let Some(ref method) = klass.bytecode.get_method(m, t) {
-                    let new_frame = JavaFrame::new(klass, Arc::clone(method));
+                if let Some(method) = klass.bytecode.get_method(m, t) {
+                    let new_frame = JavaFrame::new(klass, method);
                     pc = stack.invoke(new_frame, pc + 3);
                 } else {
                     // TODO
                     panic!("NoSuchMethodException");
                 }
             }
+
             // invokestatic
             0xb8 => {
                 let method_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;

@@ -1,8 +1,11 @@
 use super::{atom::*, attribute::*, constant_pool::ConstantPool, Traveler};
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
-pub type Methods = Vec<Arc<Method>>;
+// pub type Methods = Vec<Arc<Method>>;
+
+pub struct Methods(pub HashMap<String, Arc<Method>>);
 
 const ACC_PUBLIC: U2 = 0x0001; // Declared public; may be accessed from outside its package.
 
@@ -83,7 +86,23 @@ impl Method {
     }
 
     pub fn get_name_and_descriptor(&self) -> (&str, &str, U2) {
-        (self.name.as_ref(), self.descriptor.as_ref(), self.access_flag)
+        (
+            self.name.as_ref(),
+            self.descriptor.as_ref(),
+            self.access_flag,
+        )
+    }
+
+    pub fn is_public(&self) -> bool {
+        self.access_flag & ACC_PUBLIC == ACC_PUBLIC
+    }
+
+    pub fn is_protected(&self) -> bool {
+        self.access_flag & ACC_PROTECTED == ACC_PROTECTED
+    }
+
+    pub fn is_final(&self) -> bool {
+        self.access_flag & ACC_FINAL == ACC_FINAL
     }
 
     pub fn is_static(&self) -> bool {
@@ -105,10 +124,32 @@ impl Traveler<Methods> for Methods {
         I: Iterator<Item = u8>,
     {
         let size = U2::read(seq, None);
-        let mut methods = Vec::<Arc<Method>>::with_capacity(size as usize);
+        let mut methods = Methods(HashMap::<String, Arc<Method>>::with_capacity(size as usize));
         for _x in 0..size {
-            methods.push(Arc::new(Method::read(seq, constants)));
+            let method = Method::read(seq, constants);
+            methods.0.insert(
+                method.name.clone() + ":" + &method.descriptor,
+                Arc::new(method),
+            );
         }
         methods
+    }
+}
+
+impl Methods {
+    pub fn find(&self, name: &str, descriptor: &str) -> Option<Arc<Method>> {
+        match self.0.get(&(name.to_string() + ":" + descriptor)) {
+            Some(m) => Some(Arc::clone(m)),
+            None => None,
+        }
+    }
+}
+
+impl IntoIterator for Methods {
+    type Item = (String, Arc<Method>);
+    type IntoIter = std::collections::hash_map::IntoIter<String, Arc<Method>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
