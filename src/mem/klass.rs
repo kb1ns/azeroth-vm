@@ -1,4 +1,5 @@
-use crate::bytecode::{class::Class, method::Method};
+use super::RefKey;
+use crate::bytecode::{class::Class, field::Field, method::Method};
 use crate::mem::{metaspace::*, Ref};
 use std::collections::HashMap;
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
@@ -6,8 +7,9 @@ use std::sync::{atomic::AtomicBool, Arc, Mutex};
 pub struct Klass {
     pub bytecode: Class,
     pub classloader: Classloader,
-    pub vtable: HashMap<String, Arc<Method>>,
-    pub itable: HashMap<String, Arc<Method>>,
+    pub vtable: HashMap<RefKey, Arc<Method>>,
+    pub itable: HashMap<RefKey, Arc<Method>>,
+    pub layout: HashMap<RefKey, (Arc<Field>, usize, usize)>,
     pub superclass: Option<Arc<Klass>>,
     pub initialized: AtomicBool,
     pub mutex: Mutex<u8>,
@@ -72,11 +74,13 @@ impl Klass {
     ) -> Klass {
         let vtable = Klass::build_vtable(&bytecode, &superclass);
         let itable = Klass::build_itable(&bytecode, &superclass, &interfaces);
+        let layout = Klass::build_ftable(&bytecode, &superclass);
         Klass {
             bytecode: bytecode,
             classloader: classloader,
             vtable: vtable,
             itable: itable,
+            layout: layout,
             superclass: superclass,
             initialized: AtomicBool::new(false),
             mutex: Mutex::<u8>::new(0),
@@ -84,7 +88,15 @@ impl Klass {
     }
 
     pub fn get_method_in_vtable(&self, name: &str, desc: &str) -> Option<Arc<Method>> {
-        if let Some(ref m) = self.vtable.get(&(name.to_string() + ":" + desc)) {
+        if let Some(ref m) = self.vtable.get(&("", name, desc)) {
+            Some(Arc::clone(m))
+        } else {
+            None
+        }
+    }
+
+    pub fn get_method_in_itable(&self, ifs: &str, name: &str, desc: &str) -> Option<Arc<Method>> {
+        if let Some(ref m) = self.itable.get(&(ifs, name, desc)) {
             Some(Arc::clone(m))
         } else {
             None
@@ -94,25 +106,22 @@ impl Klass {
     fn build_vtable(
         current: &Class,
         superclass: &Option<Arc<Klass>>,
-    ) -> HashMap<String, Arc<Method>> {
-        let mut vtable = HashMap::<String, Arc<Method>>::new();
+    ) -> HashMap<RefKey, Arc<Method>> {
+        let mut vtable = HashMap::<RefKey, Arc<Method>>::new();
         match superclass {
             Some(klass) => {
                 for (k, v) in &klass.vtable {
                     vtable.insert(k.clone(), Arc::clone(&v));
                 }
-                for (k, v) in &current.methods.0 {
-                    if (v.is_public() || v.is_protected()) && !v.is_final() && !v.is_static() {
-                        vtable.insert(k.clone(), Arc::clone(&v));
-                    }
-                }
             }
-            None => {
-                for (k, v) in &current.methods.0 {
-                    if (v.is_public() || v.is_protected()) && !v.is_final() && !v.is_static() {
-                        vtable.insert(k.clone(), Arc::clone(&v));
-                    }
-                }
+            None => {}
+        }
+        for m in &current.methods {
+            if (m.is_public() || m.is_protected()) && !m.is_final() && !m.is_static() {
+                vtable.insert(
+                    RefKey::new("".to_string(), m.name.clone(), m.descriptor.clone()),
+                    Arc::clone(&m),
+                );
             }
         }
         vtable
@@ -122,8 +131,8 @@ impl Klass {
         current: &Class,
         superclass: &Option<Arc<Klass>>,
         interfaces: &Vec<Arc<Klass>>,
-    ) -> HashMap<String, Arc<Method>> {
-        let mut itable = HashMap::<String, Arc<Method>>::new();
+    ) -> HashMap<RefKey, Arc<Method>> {
+        let mut itable = HashMap::<RefKey, Arc<Method>>::new();
         match superclass {
             Some(klass) => {
                 for (k, v) in &klass.itable {
@@ -133,11 +142,37 @@ impl Klass {
             None => {}
         }
         for ifs in interfaces {
-            for (k, v) in &ifs.bytecode.methods.0 {
-                itable.insert(ifs.bytecode.get_name().to_string() + &k, Arc::clone(&v));
+            for m in &ifs.bytecode.methods {
+                itable.insert(
+                    RefKey::new(
+                        ifs.bytecode.get_name().to_string(),
+                        m.name.clone(),
+                        m.descriptor.clone(),
+                    ),
+                    Arc::clone(&m),
+                );
             }
         }
         itable
+    }
+
+    fn build_ftable(
+        current: &Class,
+        superclass: &Option<Arc<Klass>>,
+    ) -> HashMap<RefKey, (Arc<Field>, usize, usize)> {
+        let mut ftable = HashMap::<RefKey, (Arc<Field>, usize, usize)>::new();
+        // match superclass {
+        //     Some(klass) => {
+        //         for (k, v) in &klass.ftable {
+        //             ftable.insert(k.clone(), (v.0.clone(), v.1, v.2));
+        //         }
+        //     }
+        //     None => {}
+        // }
+        // for f in &current.fields {
+            
+        // }
+        ftable
     }
 
     // TODO

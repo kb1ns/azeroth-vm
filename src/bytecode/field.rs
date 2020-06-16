@@ -6,7 +6,15 @@ use std::sync::Arc;
 
 pub type Fields = Vec<Arc<Field>>;
 
-const STATIC: u16 = 0x0008;
+const ACC_STATIC: u16 = 0x0008;
+
+const ACC_PUBLIC: u16 = 0x0001;
+
+const ACC_PROTECTED: u16 = 0x0004;
+
+const ACC_PRIVATE: u16 = 0x0002;
+
+const ACC_FINAL: u16 = 0x0010;
 
 pub struct Field {
     pub access_flag: U2,
@@ -29,6 +37,26 @@ impl Field {
                 panic!("Illegal descriptor");
             }
         }
+    }
+
+    pub fn is_static(&self) -> bool {
+        self.access_flag & ACC_STATIC == ACC_STATIC
+    }
+
+    pub fn is_public(&self) -> bool {
+        self.access_flag & ACC_PUBLIC == ACC_PUBLIC
+    }
+
+    pub fn is_protected(&self) -> bool {
+        self.access_flag & ACC_PROTECTED == ACC_PROTECTED
+    }
+
+    pub fn is_private(&self) -> bool {
+        self.access_flag & ACC_PRIVATE == ACC_PRIVATE
+    }
+
+    pub fn is_final(&self) -> bool {
+        self.access_flag & ACC_FINAL == ACC_FINAL
     }
 }
 
@@ -69,7 +97,7 @@ impl Traveler<Fields> for Fields {
 }
 
 fn init_value(access_flag: u16, descriptor: &str) -> Option<Value> {
-    if access_flag & STATIC == STATIC {
+    if access_flag & ACC_STATIC == ACC_STATIC {
         if descriptor == "D" || descriptor == "J" {
             Some(Value::DWord(0))
         } else {

@@ -41,7 +41,12 @@ impl Class {
     }
 
     pub fn get_method(&self, method_name: &str, method_descriptor: &str) -> Option<Arc<Method>> {
-        self.methods.find(method_name, method_descriptor)
+        for ref m in &self.methods {
+            if m.descriptor == method_descriptor && m.name == method_name {
+                return Some(Arc::clone(m));
+            }
+        }
+        None
     }
 
     pub fn get_field(&self, field_name: &str, field_descriptor: &str) -> Option<Arc<Field>> {

@@ -1,11 +1,8 @@
 use super::{atom::*, attribute::*, constant_pool::ConstantPool, Traveler};
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
-// pub type Methods = Vec<Arc<Method>>;
-
-pub struct Methods(pub HashMap<String, Arc<Method>>);
+pub type Methods = Vec<Arc<Method>>;
 
 const ACC_PUBLIC: U2 = 0x0001; // Declared public; may be accessed from outside its package.
 
@@ -124,32 +121,22 @@ impl Traveler<Methods> for Methods {
         I: Iterator<Item = u8>,
     {
         let size = U2::read(seq, None);
-        let mut methods = Methods(HashMap::<String, Arc<Method>>::with_capacity(size as usize));
+        let mut methods = Vec::<Arc<Method>>::with_capacity(size as usize);
         for _x in 0..size {
             let method = Method::read(seq, constants);
-            methods.0.insert(
-                method.name.clone() + ":" + &method.descriptor,
-                Arc::new(method),
-            );
+            methods.push(Arc::new(method));
         }
         methods
     }
 }
 
-impl Methods {
-    pub fn find(&self, name: &str, descriptor: &str) -> Option<Arc<Method>> {
-        match self.0.get(&(name.to_string() + ":" + descriptor)) {
-            Some(m) => Some(Arc::clone(m)),
-            None => None,
-        }
-    }
-}
-
-impl IntoIterator for Methods {
-    type Item = (String, Arc<Method>);
-    type IntoIter = std::collections::hash_map::IntoIter<String, Arc<Method>>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
+// impl Methods {
+//     pub fn find(&self, name: &str, descriptor: &str) -> Option<Arc<Method>> {
+//         for m in &self {
+//             if m.descriptor == descriptor && m.name == name {
+//                 return Some(Arc::clone(m));
+//             }
+//         }
+//         None
+//     }
+// }

@@ -345,10 +345,13 @@ pub fn execute(stack: &mut JavaStack) {
                     pc = 0;
                     continue;
                 }
-                if let Some(method) = klass.bytecode.get_method(m, t) {
+                if let Some(method) = klass.get_method_in_vtable(m, t) {
                     let new_frame = JavaFrame::new(klass, method);
                     pc = stack.invoke(new_frame, pc + 3);
-                } else if let Some(method) = klass.get_method_in_vtable(m, t) {
+                } else if let Some(method) = klass.bytecode.get_method(m, t) {
+                    if !method.is_final() {
+                        panic!("ClassVerifyError");
+                    }
                     let new_frame = JavaFrame::new(klass, method);
                     pc = stack.invoke(new_frame, pc + 3);
                 } else {
@@ -375,8 +378,20 @@ pub fn execute(stack: &mut JavaStack) {
                     let new_frame = JavaFrame::new(klass, method);
                     pc = stack.invoke(new_frame, pc + 3);
                 } else {
-                    // TODO
-                    panic!("NoSuchMethodException");
+                    let mut current = klass;
+                    loop {
+                        match &current.superclass {
+                            Some(superclass) => {
+                                if let Some(method) = superclass.bytecode.get_method(m ,t) {
+                                    let new_frame = JavaFrame::new(current, method);
+                                    pc = stack.invoke(new_frame, pc + 3);
+                                    break;
+                                }
+                                current = Arc::clone(superclass);
+                            }
+                            None => panic!("NoSuchMethodError"),
+                        }
+                    }
                 }
             }
 

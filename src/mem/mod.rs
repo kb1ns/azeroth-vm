@@ -1,3 +1,6 @@
+use std::borrow::Borrow;
+use std::hash::{Hash, Hasher};
+
 use crate::bytecode::class::Class;
 use crate::classpath::Classpath;
 
@@ -137,5 +140,54 @@ fn memorize_i32() {
         assert_eq!(&i, &[0, 0, 1, 0]);
     } else {
         assert_eq!(&i, &[0, 1, 0, 0]);
+    }
+}
+
+pub struct RefKey {
+    key: (String, String, String),
+    key_ptr: ((*const u8, usize), (*const u8, usize), (*const u8, usize)),
+}
+
+impl RefKey {
+    pub fn new(key0: String, key1: String, key2: String) -> Self {
+        Self {
+            key_ptr: (
+                (key0.as_bytes().as_ptr(), key0.len()),
+                (key1.as_bytes().as_ptr(), key1.len()),
+                (key2.as_bytes().as_ptr(), key2.len()),
+            ),
+            key: (key0, key1, key2),
+        }
+    }
+}
+
+impl Hash for RefKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.key.0.hash(state);
+        self.key.1.hash(state);
+        self.key.2.hash(state);
+    }
+}
+
+impl PartialEq for RefKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.key.0 == other.key.0 && self.key.1 == other.key.1 && self.key.2 == other.key.2
+    }
+}
+
+impl<'a> Borrow<(&'a str, &'a str, &'a str)> for RefKey
+where
+    Self: 'a,
+{
+    fn borrow(&self) -> &(&'a str, &'a str, &'a str) {
+        unsafe { std::mem::transmute(&self.key_ptr) }
+    }
+}
+
+impl Eq for RefKey {}
+
+impl Clone for RefKey {
+    fn clone(&self) -> Self {
+        Self::new(self.key.0.clone(), self.key.1.clone(), self.key.2.clone())
     }
 }
