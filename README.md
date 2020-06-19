@@ -1,4 +1,4 @@
-# Yet Another Toy JVM(work-in-progress)
+# AzerothVM
 
   
 - `export JAVA_HOME=${...}`
