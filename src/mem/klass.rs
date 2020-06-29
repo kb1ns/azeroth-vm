@@ -9,7 +9,7 @@ pub struct Klass {
     pub classloader: Classloader,
     pub vtable: HashMap<RefKey, Arc<Method>>,
     pub itable: HashMap<RefKey, Arc<Method>>,
-    pub layout: HashMap<RefKey, (Arc<Field>, usize, usize)>,
+    pub layout: HashMap<RefKey, (usize, usize)>,
     pub superclass: Option<Arc<Klass>>,
     pub initialized: AtomicBool,
     pub mutex: Mutex<u8>,
@@ -143,14 +143,19 @@ impl Klass {
         }
         for ifs in interfaces {
             for m in &ifs.bytecode.methods {
-                itable.insert(
-                    RefKey::new(
-                        ifs.bytecode.get_name().to_string(),
-                        m.name.clone(),
-                        m.descriptor.clone(),
-                    ),
-                    Arc::clone(&m),
-                );
+                for implements in &current.methods {
+                    if m.name == implements.name && m.descriptor == implements.descriptor {
+                        itable.insert(
+                            RefKey::new(
+                                ifs.bytecode.get_name().to_string(),
+                                m.name.clone(),
+                                m.descriptor.clone(),
+                            ),
+                            Arc::clone(&m),
+                        );
+                        break;
+                    }
+                }
             }
         }
         itable
@@ -159,8 +164,8 @@ impl Klass {
     fn build_ftable(
         current: &Class,
         superclass: &Option<Arc<Klass>>,
-    ) -> HashMap<RefKey, (Arc<Field>, usize, usize)> {
-        let mut ftable = HashMap::<RefKey, (Arc<Field>, usize, usize)>::new();
+    ) -> HashMap<RefKey, (usize, usize)> {
+        let mut ftable = HashMap::<RefKey, (usize, usize)>::new();
         // match superclass {
         //     Some(klass) => {
         //         for (k, v) in &klass.ftable {
@@ -170,7 +175,7 @@ impl Klass {
         //     None => {}
         // }
         // for f in &current.fields {
-            
+
         // }
         ftable
     }

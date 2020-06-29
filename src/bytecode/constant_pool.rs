@@ -4,7 +4,7 @@ use std::mem::transmute;
 #[derive(Debug)]
 pub struct ConstantPool(Vec<ConstantItem>);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ConstantItem {
     UTF8(String),
     Integer(i32),
@@ -25,94 +25,55 @@ pub enum ConstantItem {
 }
 
 impl ConstantPool {
-    pub fn get_integer(&self, idx: U2) -> i32 {
-        if let Some(item) = self.0.get(idx as usize) {
-            match item {
-                &ConstantItem::Integer(i) => {
-                    return i;
-                }
-                _ => {
-                    panic!("invalid class file");
-                }
-            }
+    pub fn get(&self, idx: U2) -> &ConstantItem {
+        match self.0.get(idx as usize) {
+            None => panic!("Illegal runtime constant pool"),
+            Some(item) => item,
         }
-        panic!("invalid class file");
+    }
+
+    pub fn get_integer(&self, idx: U2) -> i32 {
+        match self.get(idx) {
+            ConstantItem::Integer(i) => *i,
+            _ => panic!("invalid class file"),
+        }
     }
 
     pub fn get_float(&self, idx: U2) -> f32 {
-        if let Some(item) = self.0.get(idx as usize) {
-            match item {
-                &ConstantItem::Float(f) => {
-                    return f;
-                }
-                _ => {
-                    panic!("invalid class file");
-                }
-            }
+        match self.get(idx) {
+            ConstantItem::Float(f) => *f,
+            _ => panic!("invalid class file"),
         }
-        panic!("invalid class file");
     }
 
     pub fn get_long(&self, idx: U2) -> i64 {
-        if let Some(item) = self.0.get(idx as usize) {
-            match item {
-                &ConstantItem::Long(l) => {
-                    return l;
-                }
-                _ => {
-                    panic!("invalid class file");
-                }
-            }
+        match self.get(idx) {
+            ConstantItem::Long(l) => *l,
+            _ => panic!("invalid class file"),
         }
-        panic!("invalid class file");
     }
 
     pub fn get_double(&self, idx: U2) -> f64 {
-        if let Some(item) = self.0.get(idx as usize) {
-            match item {
-                &ConstantItem::Double(d) => {
-                    return d;
-                }
-                _ => {
-                    panic!("invalid class file");
-                }
-            }
+        match self.get(idx) {
+            ConstantItem::Double(d) => *d,
+            _ => panic!("invalid class file"),
         }
-        panic!("invalid class file");
     }
 
     pub fn get_name_and_type(&self, idx: U2) -> (&str, &str) {
-        if let Some(item) = self.0.get(idx as usize) {
-            match item {
-                &ConstantItem::NameAndType(n_idx, t_idx) => {
-                    return (&self.get_str(n_idx), &self.get_str(t_idx));
-                }
-                _ => {
-                    panic!("invalid class file");
-                }
-            }
+        match self.get(idx) {
+            ConstantItem::NameAndType(n_idx, t_idx) => (self.get_str(*n_idx), self.get_str(*t_idx)),
+            _ => panic!("invalid class file"),
         }
-        panic!("invalid class file");
     }
 
     pub fn get_javaref(&self, idx: U2) -> (&str, (&str, &str)) {
-        if let Some(item) = self.0.get(idx as usize) {
-            match item {
-                &ConstantItem::InterfaceMethodRef(c_idx, nt_idx) => {
-                    return (&self.get_str(c_idx), self.get_name_and_type(nt_idx));
-                }
-                &ConstantItem::MethodRef(c_idx, nt_idx) => {
-                    return (&self.get_str(c_idx), self.get_name_and_type(nt_idx));
-                }
-                &ConstantItem::FieldRef(c_idx, f_idx) => {
-                    return (&self.get_str(c_idx), self.get_name_and_type(f_idx));
-                }
-                _ => {
-                    panic!("invalid class file");
-                }
-            }
+        match self.get(idx) {
+            ConstantItem::InterfaceMethodRef(c, nt) => (self.get_str(*c), self.get_name_and_type(*nt)),
+            ConstantItem::MethodRef(c, nt) => (self.get_str(*c), self.get_name_and_type(*nt)),
+            ConstantItem::FieldRef(c, f) => (self.get_str(*c), self.get_name_and_type(*f)),
+            _ => panic!("invalid class file"),
         }
-        panic!("invalid class file");
     }
 
     pub fn get_str(&self, idx: U2) -> &str {
@@ -212,15 +173,15 @@ impl Traveler<ConstantPool> for ConstantPool {
                     let v = U8::read(seq, None);
                     let i: i64 = unsafe { transmute::<u64, i64>(v) };
                     offset = offset + 1;
-                    pool.push(ConstantItem::PADDING);
-                    ConstantItem::Long(i)
+                    pool.push(ConstantItem::Long(i));
+                    ConstantItem::PADDING
                 }
                 DOUBLE_TAG => {
                     let v = U8::read(seq, None);
                     let i: f64 = unsafe { transmute::<u64, f64>(v) };
                     offset = offset + 1;
-                    pool.push(ConstantItem::PADDING);
-                    ConstantItem::Double(i)
+                    pool.push(ConstantItem::Double(i));
+                    ConstantItem::PADDING
                 }
                 NAMEANDTYPE_TAG => {
                     let name_idx = U2::read(seq, None);

@@ -1,4 +1,4 @@
-use crate::bytecode::{atom::*, *};
+use crate::bytecode::{atom::*, constant_pool::ConstantItem, *};
 use crate::mem::{heap::*, klass::*, metaspace::*, stack::*, *};
 use std::mem::transmute;
 use std::sync::atomic::*;
@@ -74,13 +74,13 @@ pub fn execute(stack: &mut JavaStack) {
             }
             // aconst_null
             0x01 => {
-                stack.push(&NULL);
+                stack.push(&NULL, 1);
                 pc = pc + 1;
             }
             // iconst -1 ~ 5
             0x02..=0x08 => {
                 let opr = stack.code_at(pc) as i32 - 3;
-                stack.push(&opr.memorized());
+                stack.push(&opr.memorized(), 1);
                 pc = pc + 1;
             }
             // lconst 0 ~ 1
@@ -88,42 +88,70 @@ pub fn execute(stack: &mut JavaStack) {
             0x09..=0x0a => {
                 let opr = stack.code_at(pc) as i64 - 9;
                 let long = opr.memorized();
-                stack.push(&long[..4]);
-                stack.push(&long[4..]);
+                stack.push(&long[..], 2);
+                // stack.push(&long[4..], 1);
                 pc = pc + 1;
             }
             // fconst 0 ~ 2
             0x0b..=0x0d => {
                 let opr = stack.code_at(pc) as f32 - 11.0;
-                stack.push(&opr.memorized());
+                stack.push(&opr.memorized(), 1);
                 pc = pc + 1;
             }
             // dconst 0 ~ 1
             0x0e..=0x0f => {
                 let opr = stack.code_at(pc) as f64 - 14.0;
                 let double = opr.memorized();
-                stack.push(&double[..4]);
-                stack.push(&double[4..]);
+                stack.push(&double[..], 2);
+                // stack.push(&double[4..]);
                 pc = pc + 1;
             }
             // bipush
             0x10 => {
-                stack.push(&(stack.code_at(pc + 1) as i32).memorized());
+                stack.push(&(stack.code_at(pc + 1) as i32).memorized(), 1);
                 pc = pc + 2;
             }
             // sipush
             0x11 => {
-                stack.push(
-                    &((stack.code_at(pc + 1) as i32) << 8 | (stack.code_at(pc + 2) as i32))
-                        .memorized(),
-                );
+                let opr = (stack.code_at(pc + 1) as i32) << 8 | (stack.code_at(pc + 2) as i32);
+                stack.push(&opr.memorized(), 1);
                 pc = pc + 3;
             }
             // ldc
-            // 0x12 => {
-            //     let opr = stack.code_at(pc + 1);
-            //     let frame = &stack.frames.last_mut().expect("Won't happend");
-            // }
+            0x12 => {
+                let klass = stack
+                    .frames
+                    .last()
+                    .expect("Illegal class file")
+                    .klass
+                    .clone();
+                match klass
+                    .bytecode
+                    .constant_pool
+                    .get(stack.code_at(pc + 1) as U2)
+                {
+                    ConstantItem::Float(f) => stack.push(&f.memorized(), 1),
+                    ConstantItem::Integer(i) => stack.push(&i.memorized(), 1),
+                    _ => panic!("Illegal class file"),
+                }
+                pc = pc + 2;
+            }
+            // ldc2w
+            0x14 => {
+                let opr = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
+                let klass = stack
+                    .frames
+                    .last()
+                    .expect("Illegal class file")
+                    .klass
+                    .clone();
+                match klass.bytecode.constant_pool.get(opr) {
+                    ConstantItem::Double(d) => stack.push(&d.memorized(), 2),
+                    ConstantItem::Long(l) => stack.push(&l.memorized(), 2),
+                    _ => panic!("Illegal class file"),
+                }
+                pc = pc + 3;
+            }
             // iload/fload
             0x15 | 0x17 => {
                 let opr = stack.code_at(pc + 1) as usize;
@@ -133,10 +161,9 @@ pub fn execute(stack: &mut JavaStack) {
             // lload/dload
             0x16 | 0x18 => {
                 let opr = stack.code_at(pc + 1) as usize;
-                stack.load(opr, 8);
+                stack.load(opr, 2);
                 pc = pc + 2;
             }
-
             // iload 0 ~ 3
             0x1a..=0x1d => {
                 let opr = stack.code_at(pc) as usize - 0x1a;
@@ -166,6 +193,16 @@ pub fn execute(stack: &mut JavaStack) {
                 let opr = stack.code_at(pc) as usize - 0x2a;
                 stack.load(opr, 1);
                 pc = pc + 1;
+            }
+            // istore/fstore
+            0x36 | 0x38 | 0x3a => {
+                stack.store(stack.code_at(pc + 1) as usize, 1);
+                pc = pc + 2;
+            }
+            // lstore/dstore
+            0x37 | 0x39 => {
+                stack.store(stack.code_at(pc + 1) as usize, 2);
+                pc = pc + 2;
             }
             // istore 0 ~ 3
             0x3b..=0x3e => {
@@ -218,9 +255,17 @@ pub fn execute(stack: &mut JavaStack) {
             }
             // iadd
             0x60 => {
-                let left = stack.pop();
-                let right = stack.pop();
-                stack.push(&(i32::from_ne_bytes(left) + i32::from_ne_bytes(right)).memorized());
+                stack.bi_op(|a, b| (i32::from_ne_bytes(a) + i32::from_ne_bytes(b)).memorized());
+                pc = pc + 1;
+            }
+            // lsub
+            0x65 => {
+                stack.bi_op_w(|a, b| (i64::from_ne_bytes(a) + i64::from_ne_bytes(b)).memorized());
+                pc = pc + 1;
+            }
+            // fmul
+            0x6a => {
+                stack.bi_op(|a, b| (f32::from_ne_bytes(a) * f32::from_ne_bytes(b)).memorized());
                 pc = pc + 1;
             }
             // iinc
@@ -272,8 +317,8 @@ pub fn execute(stack: &mut JavaStack) {
                     match &field.value.get() {
                         None => panic!(""),
                         Some(value) => match value {
-                            Value::DWord(_) => stack.push(&Value::of_w(*value)),
-                            _ => stack.push(&Value::of(*value)),
+                            Value::DWord(_) => stack.push(&Value::of_w(*value), 2),
+                            _ => stack.push(&Value::of(*value), 1),
                         },
                     }
                 } else {
@@ -327,7 +372,6 @@ pub fn execute(stack: &mut JavaStack) {
                     // TODO
                     panic!("NullPointerException");
                 }
-
             }
             // invokevirtual
             0xb6 => {
@@ -382,7 +426,7 @@ pub fn execute(stack: &mut JavaStack) {
                     loop {
                         match &current.superclass {
                             Some(superclass) => {
-                                if let Some(method) = superclass.bytecode.get_method(m ,t) {
+                                if let Some(method) = superclass.bytecode.get_method(m, t) {
                                     let new_frame = JavaFrame::new(current, method);
                                     pc = stack.invoke(new_frame, pc + 3);
                                     break;
@@ -441,7 +485,7 @@ pub fn execute(stack: &mut JavaStack) {
                 }
                 let obj = jvm_heap!().allocate_object(&klass);
                 let v = unsafe { transmute::<u32, Slot>(obj.location) };
-                stack.push(&v);
+                stack.push(&v, 1);
                 pc = pc + 3;
             }
             _ => panic!(format!(

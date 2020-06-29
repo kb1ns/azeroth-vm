@@ -67,13 +67,13 @@ impl ClassArena {
             None => match self.parse_class(&class_name) {
                 None => Err(class.to_owned()),
                 Some(k) => {
-                    let superclass = (&k).get_super_class();
+                    let superclass = k.get_super_class();
                     let superclass = if !superclass.is_empty() {
                         Some(self.load_class(superclass)?)
                     } else {
                         None
                     };
-                    let ifs = (&k).get_interfaces();
+                    let ifs = k.get_interfaces();
                     let mut interfaces: Vec<Arc<Klass>> = vec![];
                     if !ifs.is_empty() {
                         for i in ifs {

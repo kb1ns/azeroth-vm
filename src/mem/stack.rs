@@ -20,7 +20,7 @@ impl JavaStack {
 
     pub fn has_next(&self, pc: usize) -> bool {
         match self.frames.last() {
-            Some(ref frame) => pc < frame.method.get_code().expect("").2.len(),
+            Some(ref frame) => pc < frame.method.get_code().expect("Illegal class file").2.len(),
             None => false,
         }
     }
@@ -47,7 +47,7 @@ impl JavaStack {
                 // TODO native invokcation not implemented yet, return the pc directly
                 return pc;
             }
-            let current = self.frames.last_mut().expect("Won't happend");
+            let current = self.frames.last_mut().expect("Illegal stack");
             unsafe {
                 current.operands_ptr = current.operands_ptr.sub(slots * PTR_SIZE);
                 current
@@ -131,11 +131,11 @@ impl JavaStack {
         &frame.locals[offset * PTR_SIZE..].copy_from_slice(&v[..]);
     }
 
-    pub fn push(&mut self, v: &[u8]) {
+    pub fn push(&mut self, v: &[u8], len: usize) {
         let current = self.frames.last_mut().expect("Illegal class file");
         unsafe {
-            current.operands_ptr.copy_from(v.as_ptr(), PTR_SIZE);
-            current.operands_ptr = current.operands_ptr.add(PTR_SIZE);
+            current.operands_ptr.copy_from(v.as_ptr(), PTR_SIZE * len);
+            current.operands_ptr = current.operands_ptr.add(PTR_SIZE * len);
         }
     }
 
@@ -159,6 +159,24 @@ impl JavaStack {
                 .copy_to(data.as_mut_ptr(), PTR_SIZE * 2);
         }
         data
+    }
+
+    pub fn bi_op<F>(&mut self, f: F)
+    where
+        F: Fn(Slot, Slot) -> Slot,
+    {
+        let left = self.pop();
+        let right = self.pop();
+        self.push(&f(left, right), 1);
+    }
+
+    pub fn bi_op_w<F>(&mut self, f: F)
+    where
+        F: Fn(WideSlot, WideSlot) -> WideSlot,
+    {
+        let left = self.pop_w();
+        let right = self.pop_w();
+        self.push(&f(left, right), 2);
     }
 }
 
