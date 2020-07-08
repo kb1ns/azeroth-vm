@@ -50,7 +50,7 @@ impl Heap {
     }
 
     pub fn allocate_object(&self, klass: &Arc<Klass>) -> Instance {
-        let payload_len = klass.payload_len();
+        let payload_len = klass.len;
         let instance_len = size_of::<ObjectHeader>() + payload_len;
         let mut eden = self.eden.write().unwrap();
         // ensure enough space to allocate object
