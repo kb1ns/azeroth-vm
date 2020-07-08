@@ -2,7 +2,7 @@ use super::RefKey;
 use crate::bytecode::{class::Class, method::Method};
 use crate::mem::{metaspace::*, Ref};
 use std::collections::HashMap;
-use std::mem::{transmute, transmute_copy};
+use std::mem::{size_of, transmute};
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
 pub struct Klass {
@@ -20,59 +20,36 @@ pub struct Klass {
 #[derive(Clone)]
 pub struct ObjectHeader {
     pub mark: Ref,
-    pub klass: Arc<Klass>,
-    pub array_len: Option<usize>,
+    pub klass: *const Klass,
 }
 
-pub const OBJ_HEADER_LEN: usize = std::mem::size_of::<ObjectHeader>();
+pub const OBJ_HEADER_LEN: usize = size_of::<ObjectHeader>();
 
-pub type ObjectHeaderBin = [u8; OBJ_HEADER_LEN];
+pub type ObjectHeaderRaw = [u8; OBJ_HEADER_LEN];
 
 impl ObjectHeader {
-    pub fn new_instance(klass: &Arc<Klass>) -> ObjectHeader {
+    pub fn new(klass: &Arc<Klass>) -> ObjectHeader {
+        // The Arc counts are not affected.
+        // The pointer is valid as long as the Arc has strong counts.
+        // In another word, it is valid before the Klass unload.
         ObjectHeader {
             mark: 0,
-            klass: Arc::clone(klass),
-            array_len: None,
+            klass: Arc::as_ptr(klass),
         }
     }
 
-    pub fn new_array(klass: &Arc<Klass>, array_len: usize) -> ObjectHeader {
-        ObjectHeader {
-            mark: 0,
-            klass: Arc::clone(klass),
-            array_len: Some(array_len),
+    pub fn into_vm_raw(self) -> ObjectHeaderRaw {
+        unsafe { transmute::<Self, ObjectHeaderRaw>(self) }
+    }
+
+    pub fn from_vm_raw(ptr: *const u8) -> Self {
+        let mut obj_header_raw = [0u8; OBJ_HEADER_LEN];
+        let obj_header_ptr = obj_header_raw.as_mut_ptr();
+        unsafe {
+            obj_header_ptr.copy_from(ptr, OBJ_HEADER_LEN);
+            transmute::<ObjectHeaderRaw, Self>(obj_header_raw)
         }
     }
-
-    pub fn into_vm_raw(self) -> ObjectHeaderBin {
-        unsafe { transmute::<Self, ObjectHeaderBin>(self) }
-    }
-}
-
-pub struct Instance {
-    pub header: ObjectHeader,
-    payload: *mut u8,
-    len: usize,
-    pub location: u32,
-}
-
-impl Instance {
-    pub fn new(header: ObjectHeader, payload: *mut u8, len: usize, location: u32) -> Instance {
-        Instance {
-            header: header,
-            payload: payload,
-            len: len,
-            location: location,
-        }
-    }
-
-    // pub fn get_instance(header: &ObjectHeader) -> Instance {
-    //     match header.array_len {
-    //         Some(array_len) => ,
-    //         None =>
-    //     }
-    // }
 }
 
 impl Klass {

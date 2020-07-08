@@ -56,7 +56,7 @@ impl Heap {
             // TODO gc
             panic!("OutOfMemoryError");
         }
-        let obj_header = ObjectHeader::new_instance(klass);
+        let obj_header = ObjectHeader::new(klass);
         unsafe {
             let eden_ptr = self.base.add(eden.offset as usize);
             // copy object header
@@ -104,5 +104,13 @@ mod test {
         assert_eq!(0, obj0);
         let obj1 = jvm_heap!().allocate_object(&klass);
         assert_eq!(super::OBJ_HEADER_LEN + klass.len, obj1 as usize);
+
+        let obj0_ptr = unsafe { jvm_heap!().base.add(obj0 as usize) };
+        let obj_header: super::ObjectHeader = super::klass::ObjectHeader::from_vm_raw(obj0_ptr);
+        let java_lang_object_klass = unsafe { &*obj_header.klass };
+        assert_eq!(
+            "java/lang/Object",
+            java_lang_object_klass.bytecode.this_class_name
+        );
     }
 }

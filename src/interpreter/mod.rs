@@ -392,6 +392,7 @@ pub fn execute(stack: &mut JavaStack) {
                     // TODO
                     panic!("NullPointerException");
                 }
+
             }
             // invokevirtual
             0xb6 => {
