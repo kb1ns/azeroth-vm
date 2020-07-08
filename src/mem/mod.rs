@@ -143,6 +143,7 @@ fn memorize_i32() {
     }
 }
 
+#[derive(Debug)]
 pub struct RefKey {
     key: (String, String, String),
     key_ptr: ((*const u8, usize), (*const u8, usize), (*const u8, usize)),

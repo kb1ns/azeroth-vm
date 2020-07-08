@@ -1,5 +1,5 @@
 use super::RefKey;
-use crate::bytecode::{class::Class, field::Field, method::Method};
+use crate::bytecode::{class::Class, method::Method};
 use crate::mem::{metaspace::*, Ref};
 use std::collections::HashMap;
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
@@ -119,7 +119,11 @@ impl Klass {
             None => {}
         }
         for m in &current.methods {
-            if (m.is_public() || m.is_protected()) && !m.is_final() && !m.is_static() {
+            if (m.is_public() || m.is_protected())
+                && !m.is_final()
+                && !m.is_static()
+                && m.name != "<init>"
+            {
                 vtable.insert(
                     RefKey::new("".to_string(), m.name.clone(), m.descriptor.clone()),
                     Arc::clone(&m),
@@ -200,5 +204,70 @@ impl Klass {
 
     pub fn payload_len(&self) -> usize {
         self.len
+    }
+}
+
+#[cfg(test)]
+pub mod test {
+
+    use std::sync::Arc;
+    use crate::bytecode::class::Class;
+
+    fn parse_class(bytecode: &str) -> Class {
+        let class_vec = base64::decode(bytecode).unwrap();
+        Class::from_vec(class_vec)
+    }
+
+    #[test]
+    pub fn test_vtable() {
+        let java_lang_object = "yv66vgAAADQATgcAMQoAAQAyCgARADMKADQANQoAAQA2CAA3CgARADgKADkAOgoAAQA7BwA8CAA9CgAKAD4DAA9CPwgAPwoAEQBACgARAEEHAEIBAAY8aW5pdD4BAAMoKVYBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQAPcmVnaXN0ZXJOYXRpdmVzAQAIZ2V0Q2xhc3MBABMoKUxqYXZhL2xhbmcvQ2xhc3M7AQAJU2lnbmF0dXJlAQAWKClMamF2YS9sYW5nL0NsYXNzPCo+OwEACGhhc2hDb2RlAQADKClJAQAGZXF1YWxzAQAVKExqYXZhL2xhbmcvT2JqZWN0OylaAQANU3RhY2tNYXBUYWJsZQEABWNsb25lAQAUKClMamF2YS9sYW5nL09iamVjdDsBAApFeGNlcHRpb25zBwBDAQAIdG9TdHJpbmcBABQoKUxqYXZhL2xhbmcvU3RyaW5nOwEABm5vdGlmeQEACW5vdGlmeUFsbAEABHdhaXQBAAQoSilWBwBEAQAFKEpJKVYBAAhmaW5hbGl6ZQcARQEACDxjbGluaXQ+AQAKU291cmNlRmlsZQEAC09iamVjdC5qYXZhAQAXamF2YS9sYW5nL1N0cmluZ0J1aWxkZXIMABIAEwwAFwAYBwBGDABHACUMAEgASQEAAUAMABsAHAcASgwASwBMDAAkACUBACJqYXZhL2xhbmcvSWxsZWdhbEFyZ3VtZW50RXhjZXB0aW9uAQAZdGltZW91dCB2YWx1ZSBpcyBuZWdhdGl2ZQwAEgBNAQAlbmFub3NlY29uZCB0aW1lb3V0IHZhbHVlIG91dCBvZiByYW5nZQwAKAApDAAWABMBABBqYXZhL2xhbmcvT2JqZWN0AQAkamF2YS9sYW5nL0Nsb25lTm90U3VwcG9ydGVkRXhjZXB0aW9uAQAeamF2YS9sYW5nL0ludGVycnVwdGVkRXhjZXB0aW9uAQATamF2YS9sYW5nL1Rocm93YWJsZQEAD2phdmEvbGFuZy9DbGFzcwEAB2dldE5hbWUBAAZhcHBlbmQBAC0oTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL2xhbmcvU3RyaW5nQnVpbGRlcjsBABFqYXZhL2xhbmcvSW50ZWdlcgEAC3RvSGV4U3RyaW5nAQAVKEkpTGphdmEvbGFuZy9TdHJpbmc7AQAVKExqYXZhL2xhbmcvU3RyaW5nOylWACEAEQAAAAAAAAAOAAEAEgATAAEAFAAAABkAAAABAAAAAbEAAAABABUAAAAGAAEAAAAlAQoAFgATAAABEQAXABgAAQAZAAAAAgAaAQEAGwAcAAAAAQAdAB4AAQAUAAAALgACAAIAAAALKiumAAcEpwAEA6wAAAACABUAAAAGAAEAAACVAB8AAAAFAAIJQAEBBAAgACEAAQAiAAAABAABACMAAQAkACUAAQAUAAAAPAACAAEAAAAkuwABWbcAAiq2AAO2AAS2AAUSBrYABSq2AAe4AAi2AAW2AAmwAAAAAQAVAAAABgABAAAA7AERACYAEwAAAREAJwATAAABEQAoACkAAQAiAAAABAABACoAEQAoACsAAgAUAAAAcgAEAAQAAAAyHwmUnAANuwAKWRILtwAMvx2bAAkdEg2kAA27AApZEg63AAy/HZ4ABx8KYUAqH7YAD7EAAAACABUAAAAiAAgAAAG/AAYBwAAQAcMAGgHEACQByAAoAckALAHMADEBzQAfAAAABgAEEAkJBwAiAAAABAABACoAEQAoABMAAgAUAAAAIgADAAEAAAAGKgm2AA+xAAAAAQAVAAAACgACAAAB9gAFAfcAIgAAAAQAAQAqAAQALAATAAIAFAAAABkAAAABAAAAAbEAAAABABUAAAAGAAEAAAIrACIAAAAEAAEALQAIAC4AEwABABQAAAAgAAAAAAAAAAS4ABCxAAAAAQAVAAAACgACAAAAKQADACoAAQAvAAAAAgAw";
+        let bytecode = parse_class(java_lang_object);
+        let java_lang_object_klass = super::Klass::new(
+            bytecode,
+            crate::mem::metaspace::Classloader::ROOT,
+            None,
+            vec![],
+        );
+        let java_lang_object_klass = Arc::new(java_lang_object_klass);
+        assert_eq!(5, java_lang_object_klass.vtable.len());
+        let default_simple = "yv66vgAAADQAEAoAAwANBwAOBwAPAQAGPGluaXQ+AQADKClWAQAEQ29kZQEAD0xpbmVOdW1iZXJUYWJsZQEABHRlc3QBAAgoSUpGRFopVgEADVN0YWNrTWFwVGFibGUBAApTb3VyY2VGaWxlAQALU2ltcGxlLmphdmEMAAQABQEABlNpbXBsZQEAEGphdmEvbGFuZy9PYmplY3QAIQACAAMAAAAAAAIAAQAEAAUAAQAGAAAAHQABAAEAAAAFKrcAAbEAAAABAAcAAAAGAAEAAAABAAkACAAJAAEABgAAAFUABAANAAAAGxoEYDYHHwplNwglDGo4ChUGmQAJGAQPbzkLsQAAAAIABwAAABoABgAAAAQABQAFAAoABgAPAAcAFAAIABoACgAKAAAACAAB/gAaAQQCAAEACwAAAAIADA==";
+        let bytecode = parse_class(default_simple);
+        let default_simple_klass = super::Klass::new(
+            bytecode,
+            crate::mem::metaspace::Classloader::ROOT,
+            Some(java_lang_object_klass.clone()),
+            vec![],
+        );
+        assert_eq!(5, default_simple_klass.vtable.len());
+        assert_eq!(
+            true,
+            default_simple_klass
+                .vtable
+                .get(&("", "toString", "()Ljava/lang/String;"))
+                .is_some()
+        );
+        let to_string_method0 = java_lang_object_klass
+            .vtable
+            .get(&("", "toString", "()Ljava/lang/String;"))
+            .unwrap();
+        let to_string_method1 = default_simple_klass
+            .vtable
+            .get(&("", "toString", "()Ljava/lang/String;"))
+            .unwrap();
+        assert_eq!(true, Arc::ptr_eq(to_string_method0, to_string_method1));
+        let default_test = "yv66vgAAADQAEwoABAAPCAAQBwARBwASAQAGPGluaXQ+AQADKClWAQAEQ29kZQEAD0xpbmVOdW1iZXJUYWJsZQEACHRvU3RyaW5nAQAUKClMamF2YS9sYW5nL1N0cmluZzsBAAR0ZXN0AQAEKEkpVgEAClNvdXJjZUZpbGUBAA9UZXN0VlRhYmxlLmphdmEMAAUABgEAAAEAClRlc3RWVGFibGUBABBqYXZhL2xhbmcvT2JqZWN0ACEAAwAEAAAAAAADAAEABQAGAAEABwAAAB0AAQABAAAABSq3AAGxAAAAAQAIAAAABgABAAAAAgABAAkACgABAAcAAAAbAAEAAQAAAAMSArAAAAABAAgAAAAGAAEAAAAFAAEACwAMAAEABwAAABkAAAACAAAAAbEAAAABAAgAAAAGAAEAAAAKAAEADQAAAAIADg==";
+        let bytecode = parse_class(default_test);
+        let default_test_klass = super::Klass::new(
+            bytecode,
+            crate::mem::metaspace::Classloader::ROOT,
+            Some(java_lang_object_klass.clone()),
+            vec![],
+        );
+        assert_eq!(6, default_test_klass.vtable.len());
+        let to_string_method2 = default_test_klass
+            .vtable
+            .get(&("", "toString", "()Ljava/lang/String;"))
+            .unwrap();
+        assert_eq!(false, Arc::ptr_eq(to_string_method0, to_string_method2));
     }
 }
