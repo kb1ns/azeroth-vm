@@ -1,8 +1,7 @@
 use crate::mem::{
-    klass::{Instance, Klass, ObjectHeader},
+    klass::{Klass, ObjectHeader, OBJ_HEADER_LEN},
     *,
 };
-use std::mem::{size_of, transmute};
 use std::sync::{Arc, RwLock};
 
 pub struct Heap {
@@ -49,31 +48,23 @@ impl Heap {
         }
     }
 
-    pub fn allocate_object(&self, klass: &Arc<Klass>) -> Instance {
-        let payload_len = klass.len;
-        let instance_len = size_of::<ObjectHeader>() + payload_len;
+    pub fn allocate_object(&self, klass: &Arc<Klass>) -> Ref {
+        let instance_len = OBJ_HEADER_LEN + klass.len;
         let mut eden = self.eden.write().unwrap();
         // ensure enough space to allocate object
         if eden.offset + instance_len as u32 >= eden.limit {
             // TODO gc
             panic!("OutOfMemoryError");
         }
-        let header = ObjectHeader::new_instance(klass);
+        let obj_header = ObjectHeader::new_instance(klass);
         unsafe {
             let eden_ptr = self.base.add(eden.offset as usize);
             // copy object header
-            let header_ptr =
-                transmute::<ObjectHeader, [u8; size_of::<ObjectHeader>()]>(header.clone())
-                    .as_mut_ptr();
-            eden_ptr.copy_from(header_ptr, size_of::<ObjectHeader>());
-            let instance = Instance::new(
-                header,
-                eden_ptr.add(size_of::<ObjectHeader>()),
-                payload_len,
-                eden.offset,
-            );
+            let obj_header_ptr = obj_header.into_vm_raw().as_ptr();
+            eden_ptr.copy_from(obj_header_ptr, OBJ_HEADER_LEN);
+            let addr = eden.offset;
             eden.offset = eden.offset + instance_len as u32;
-            instance
+            addr
         }
     }
 
@@ -110,11 +101,8 @@ mod test {
         let klass = super::Klass::new(bytecode, super::metaspace::Classloader::ROOT, None, vec![]);
         let klass = super::Arc::new(klass);
         let obj0 = jvm_heap!().allocate_object(&klass);
-        assert_eq!(0, obj0.location);
+        assert_eq!(0, obj0);
         let obj1 = jvm_heap!().allocate_object(&klass);
-        assert_eq!(
-            super::size_of::<super::ObjectHeader>() + klass.payload_len(),
-            obj1.location as usize
-        );
+        assert_eq!(super::OBJ_HEADER_LEN + klass.len, obj1 as usize);
     }
 }

@@ -503,7 +503,7 @@ pub fn execute(stack: &mut JavaStack) {
                     continue;
                 }
                 let obj = jvm_heap!().allocate_object(&klass);
-                let v = obj.location.to_ne_bytes();
+                let v = obj.to_ne_bytes();
                 stack.push(&v, 1);
                 pc = pc + 3;
             }

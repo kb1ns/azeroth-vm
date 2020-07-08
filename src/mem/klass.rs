@@ -2,6 +2,7 @@ use super::RefKey;
 use crate::bytecode::{class::Class, method::Method};
 use crate::mem::{metaspace::*, Ref};
 use std::collections::HashMap;
+use std::mem::{transmute, transmute_copy};
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
 pub struct Klass {
@@ -23,6 +24,10 @@ pub struct ObjectHeader {
     pub array_len: Option<usize>,
 }
 
+pub const OBJ_HEADER_LEN: usize = std::mem::size_of::<ObjectHeader>();
+
+pub type ObjectHeaderBin = [u8; OBJ_HEADER_LEN];
+
 impl ObjectHeader {
     pub fn new_instance(klass: &Arc<Klass>) -> ObjectHeader {
         ObjectHeader {
@@ -38,6 +43,10 @@ impl ObjectHeader {
             klass: Arc::clone(klass),
             array_len: Some(array_len),
         }
+    }
+
+    pub fn into_vm_raw(self) -> ObjectHeaderBin {
+        unsafe { transmute::<Self, ObjectHeaderBin>(self) }
     }
 }
 
