@@ -10,6 +10,7 @@ pub struct Klass {
     pub vtable: HashMap<RefKey, Arc<Method>>,
     pub itable: HashMap<RefKey, Arc<Method>>,
     pub layout: HashMap<RefKey, (usize, usize)>,
+    pub len: usize,
     pub superclass: Option<Arc<Klass>>,
     pub initialized: AtomicBool,
     pub mutex: Mutex<u8>,
@@ -74,13 +75,14 @@ impl Klass {
     ) -> Klass {
         let vtable = Klass::build_vtable(&bytecode, &superclass);
         let itable = Klass::build_itable(&bytecode, &superclass, &interfaces);
-        let layout = Klass::build_ftable(&bytecode, &superclass);
+        let (layout, len) = Klass::build_layout(&bytecode, &superclass);
         Klass {
             bytecode: bytecode,
             classloader: classloader,
             vtable: vtable,
             itable: itable,
             layout: layout,
+            len: len,
             superclass: superclass,
             initialized: AtomicBool::new(false),
             mutex: Mutex::<u8>::new(0),
@@ -161,32 +163,42 @@ impl Klass {
         itable
     }
 
-    fn build_ftable(
+    fn build_layout(
         current: &Class,
         superclass: &Option<Arc<Klass>>,
-    ) -> HashMap<RefKey, (usize, usize)> {
-        let mut ftable = HashMap::<RefKey, (usize, usize)>::new();
-        // match superclass {
-        //     Some(klass) => {
-        //         for (k, v) in &klass.ftable {
-        //             ftable.insert(k.clone(), (v.0.clone(), v.1, v.2));
-        //         }
-        //     }
-        //     None => {}
-        // }
-        // for f in &current.fields {
-
-        // }
-        ftable
+    ) -> (HashMap<RefKey, (usize, usize)>, usize) {
+        let mut layout = HashMap::<RefKey, (usize, usize)>::new();
+        let (len, size) = match superclass {
+            Some(klass) => {
+                let mut max = 0usize;
+                for (k, v) in &klass.layout {
+                    layout.insert(k.clone(), (v.0, v.1));
+                    max = std::cmp::max(max, v.0 + v.1);
+                }
+                (klass.len, max)
+            }
+            None => (0usize, 0usize),
+        };
+        let mut len = std::cmp::min(len, size);
+        for f in &current.fields {
+            if f.memory_size() > len % 4 && len % 4 != 0 {
+                len = len + len % 4;
+            }
+            layout.insert(
+                RefKey::new(
+                    current.get_name().to_string(),
+                    f.name.clone(),
+                    f.descriptor.clone(),
+                ),
+                (len, f.memory_size()),
+            );
+            len = len + f.memory_size();
+        }
+        len = len + len % 4;
+        (layout, len)
     }
 
-    // TODO
     pub fn payload_len(&self) -> usize {
-        let size = self.bytecode.fields.iter().map(|x| x.memory_size()).sum();
-        // FIXME override field
-        match &self.superclass {
-            Some(klass) => klass.payload_len() + size,
-            None => size,
-        }
+        self.len
     }
 }

@@ -1,6 +1,5 @@
 use crate::bytecode::{atom::*, constant_pool::ConstantItem, *};
 use crate::mem::{heap::*, klass::*, metaspace::*, stack::*, *};
-use std::mem::transmute;
 use std::sync::atomic::*;
 use std::sync::Arc;
 
@@ -24,7 +23,7 @@ fn ensure_initialized(stack: &mut JavaStack, klass: Arc<Klass>, pc: usize) -> bo
         if let Ok(_) = klass.mutex.try_lock() {
             if !klass.initialized.load(Ordering::Relaxed) {
                 klass.initialized.store(true, Ordering::Relaxed);
-                trace!("init class {}", klass.bytecode.get_name());
+                trace!("initialize class {}", klass.bytecode.get_name());
                 let initialized = match klass.bytecode.get_method("<clinit>", "()V") {
                     Some(clinit) => {
                         let frame = JavaFrame::new(klass.clone(), clinit);
@@ -255,32 +254,53 @@ pub fn execute(stack: &mut JavaStack) {
             }
             // iadd
             0x60 => {
-                stack.bi_op(|a, b| (i32::from_ne_bytes(a) + i32::from_ne_bytes(b)).memorized());
+                stack.bi_op(|a, b| (i32::from_ne_bytes(a) + i32::from_ne_bytes(b)).to_ne_bytes());
                 pc = pc + 1;
             }
             // lsub
             0x65 => {
-                stack.bi_op_w(|a, b| (i64::from_ne_bytes(a) + i64::from_ne_bytes(b)).memorized());
+                stack.bi_op_w(|a, b| (i64::from_ne_bytes(a) + i64::from_ne_bytes(b)).to_ne_bytes());
                 pc = pc + 1;
             }
             // fmul
             0x6a => {
-                stack.bi_op(|a, b| (f32::from_ne_bytes(a) * f32::from_ne_bytes(b)).memorized());
+                stack.bi_op(|a, b| (f32::from_ne_bytes(a) * f32::from_ne_bytes(b)).to_ne_bytes());
+                pc = pc + 1;
+            }
+            // ddiv
+            0x6f => {
+                stack.bi_op_w(|a, b| (f64::from_ne_bytes(a) / f64::from_ne_bytes(b)).to_ne_bytes());
                 pc = pc + 1;
             }
             // iinc
             0x84 => {
                 let index = stack.code_at(pc + 1) as usize;
                 let cst = stack.code_at(pc + 2) as i32;
-                let new = unsafe { transmute::<Slot, i32>(stack.get(index)) + cst };
-                stack.set(index, new.memorized());
+                let new = i32::from_ne_bytes(stack.get(index)) + cst;
+                stack.set(index, new.to_ne_bytes());
                 pc = pc + 3;
+            }
+            // ifeq, ifne, iflt, ifge, ifgt, ifle
+            0x99..=0x9e => {
+                let opr = i32::from_ne_bytes(stack.pop());
+                if opr == 0 && instruction == 0x99
+                    || opr != 0 && instruction == 0x9a
+                    || opr < 0 && instruction == 0x9b
+                    || opr >= 0 && instruction == 0x9c
+                    || opr > 0 && instruction == 0x9d
+                    || opr <= 0 && instruction == 0x9e
+                {
+                    let jump = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
+                    pc = jump as usize;
+                } else {
+                    pc = pc + 3;
+                }
             }
             // if_icmpge
             0xa2 => {
-                let (v1, v2) = unsafe {
-                    let v2 = transmute::<Slot, i32>(stack.pop());
-                    let v1 = transmute::<Slot, i32>(stack.pop());
+                let (v1, v2) = {
+                    let v2 = i32::from_ne_bytes(stack.pop());
+                    let v1 = i32::from_ne_bytes(stack.pop());
                     (v1, v2)
                 };
                 if v1 >= v2 {
@@ -438,7 +458,6 @@ pub fn execute(stack: &mut JavaStack) {
                     }
                 }
             }
-
             // invokestatic
             0xb8 => {
                 let method_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
@@ -484,7 +503,7 @@ pub fn execute(stack: &mut JavaStack) {
                     continue;
                 }
                 let obj = jvm_heap!().allocate_object(&klass);
-                let v = unsafe { transmute::<u32, Slot>(obj.location) };
+                let v = obj.location.to_ne_bytes();
                 stack.push(&v, 1);
                 pc = pc + 3;
             }

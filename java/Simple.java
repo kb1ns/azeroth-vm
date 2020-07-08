@@ -4,9 +4,9 @@ public class Simple {
         int aa = a + 1;
         long bb = b - 1;
         float cc = c * 1.0f;
-	if (f) {
+        if (f) {
             double dd = d / 1.0d;
-	}
+        }
     }
 
     public static void main(String[] args) {
