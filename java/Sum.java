@@ -21,15 +21,12 @@ public class Sum implements A {
     }
 
     public static void main(String[] args) {
-        for (int i = 0; i < 5; i++) {
-            new HelloWorld();
-            Sum s = new SumP();
+            Sum s = new Sum();
             s.incr();
             // s.decr();
             A a = new SumP();
             a.decr();
             HelloWorld.say(1, sum);
-        }
     }
 
 

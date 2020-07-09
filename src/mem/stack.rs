@@ -1,6 +1,6 @@
-use crate::bytecode::{atom::*, method::Method};
+use crate::bytecode::method::Method;
 use crate::interpreter;
-use crate::mem::{klass::Klass, *};
+use crate::mem::{klass::*, *};
 use std::sync::Arc;
 
 pub struct JavaStack {
@@ -49,9 +49,9 @@ impl JavaStack {
             }
             let current = self.frames.last_mut().expect("Illegal stack");
             unsafe {
-                current.operands_ptr = current.operands_ptr.sub(slots * PTR_SIZE);
+                current.ptr = current.ptr.sub(slots * PTR_SIZE);
                 current
-                    .operands_ptr
+                    .ptr
                     .copy_to(frame.locals[..].as_mut_ptr(), slots * PTR_SIZE);
             }
             frame.pc = pc;
@@ -72,10 +72,9 @@ impl JavaStack {
             };
             let current = self.frames.last_mut().expect("");
             unsafe {
-                current
-                    .operands_ptr
-                    .copy_from(frame.operands_ptr.sub(slots * PTR_SIZE), slots * PTR_SIZE);
-                current.operands_ptr = current.operands_ptr.add(slots * PTR_SIZE);
+                let return_val = frame.ptr.sub(slots * PTR_SIZE);
+                current.ptr.copy_from(return_val, slots * PTR_SIZE);
+                current.ptr = current.ptr.add(slots * PTR_SIZE);
             }
         }
         frame.pc
@@ -88,19 +87,19 @@ impl JavaStack {
     pub fn load(&mut self, offset: usize, count: usize) {
         let current = self.frames.last_mut().expect("Illegal class file");
         unsafe {
-            current.operands_ptr.copy_from(
+            current.ptr.copy_from(
                 current.locals[offset * PTR_SIZE..].as_ptr(),
                 count * PTR_SIZE,
             );
-            current.operands_ptr = current.operands_ptr.add(count * PTR_SIZE);
+            current.ptr = current.ptr.add(count * PTR_SIZE);
         }
     }
 
     pub fn store(&mut self, offset: usize, count: usize) {
         let current = self.frames.last_mut().expect("Illegal class file");
         unsafe {
-            current.operands_ptr = current.operands_ptr.sub(count * PTR_SIZE);
-            current.operands_ptr.copy_to(
+            current.ptr = current.ptr.sub(count * PTR_SIZE);
+            current.ptr.copy_to(
                 current.locals[offset * PTR_SIZE..].as_mut_ptr(),
                 count * PTR_SIZE,
             );
@@ -134,8 +133,8 @@ impl JavaStack {
     pub fn push(&mut self, v: &[u8], len: usize) {
         let current = self.frames.last_mut().expect("Illegal class file");
         unsafe {
-            current.operands_ptr.copy_from(v.as_ptr(), PTR_SIZE * len);
-            current.operands_ptr = current.operands_ptr.add(PTR_SIZE * len);
+            current.ptr.copy_from(v.as_ptr(), len);
+            current.ptr = current.ptr.add(len);
         }
     }
 
@@ -143,8 +142,8 @@ impl JavaStack {
         let mut data = NULL;
         let current = self.frames.last_mut().expect("Illegal operands");
         unsafe {
-            current.operands_ptr = current.operands_ptr.sub(PTR_SIZE);
-            current.operands_ptr.copy_to(data.as_mut_ptr(), PTR_SIZE);
+            current.ptr = current.ptr.sub(PTR_SIZE);
+            current.ptr.copy_to(data.as_mut_ptr(), PTR_SIZE);
         }
         data
     }
@@ -153,10 +152,8 @@ impl JavaStack {
         let mut data = LONG_NULL;
         let current = self.frames.last_mut().expect("Illegal operands");
         unsafe {
-            current.operands_ptr = current.operands_ptr.sub(PTR_SIZE * 2);
-            current
-                .operands_ptr
-                .copy_to(data.as_mut_ptr(), PTR_SIZE * 2);
+            current.ptr = current.ptr.sub(PTR_SIZE * 2);
+            current.ptr.copy_to(data.as_mut_ptr(), PTR_SIZE * 2);
         }
         data
     }
@@ -167,7 +164,7 @@ impl JavaStack {
     {
         let left = self.pop();
         let right = self.pop();
-        self.push(&f(left, right), 1);
+        self.push(&f(left, right), PTR_SIZE);
     }
 
     pub fn bi_op_w<F>(&mut self, f: F)
@@ -176,14 +173,30 @@ impl JavaStack {
     {
         let left = self.pop_w();
         let right = self.pop_w();
-        self.push(&f(left, right), 2);
+        self.push(&f(left, right), 2 * PTR_SIZE);
+    }
+
+    pub fn fetch_heap(&mut self, addr: u32, offset: usize, len: usize) {
+        let current = self.frames.last_mut().expect("Illegal operands");
+        unsafe {
+            let obj_payload_ptr = jvm_heap!().base.add(addr as usize + OBJ_HEADER_LEN);
+            if offset % 4 == 0 {
+                let data_ptr = obj_payload_ptr.add(offset);
+                current.ptr.copy_from(data_ptr, len);
+            } else {
+            }
+        }
+    }
+
+    pub fn current_class(&self) -> Arc<Klass> {
+        self.frames.last().expect("Illegal stack").klass.clone()
     }
 }
 
 pub struct JavaFrame {
     pub locals: Vec<u8>,
-    operands: Vec<u8>,
-    pub operands_ptr: *mut u8,
+    pub operands: Vec<u8>,
+    pub ptr: *mut u8,
     pub klass: Arc<Klass>,
     pub method: Arc<Method>,
     pub pc: usize,
@@ -198,11 +211,11 @@ impl JavaFrame {
                 }
                 // TODO native method
                 let mut operands: Vec<u8> = vec![];
-                let operands_ptr = operands.as_mut_ptr();
+                let ptr = operands.as_mut_ptr();
                 JavaFrame {
                     locals: vec![],
                     operands: operands,
-                    operands_ptr: operands_ptr,
+                    ptr: ptr,
                     klass: klass,
                     method: Arc::clone(&method),
                     pc: 0,
@@ -210,11 +223,11 @@ impl JavaFrame {
             }
             Some((stacks, locals, _, _, _)) => {
                 let mut operands = vec![0u8; PTR_SIZE * stacks as usize];
-                let operands_ptr = operands.as_mut_ptr();
+                let ptr = operands.as_mut_ptr();
                 JavaFrame {
                     locals: vec![0u8; PTR_SIZE * locals as usize],
                     operands: operands,
-                    operands_ptr: operands_ptr,
+                    ptr: ptr,
                     klass: klass,
                     method: Arc::clone(&method),
                     pc: 0,
@@ -241,16 +254,69 @@ impl JavaFrame {
     }
 }
 
-#[test]
-pub fn test() {
-    let mut v = vec![0u8; 16];
-    let ptr = v.as_mut_ptr();
-    let data = [1u8, 1, 1, 1];
-    unsafe {
-        ptr.copy_from((&data).as_ptr(), 4);
+#[cfg(test)]
+mod test {
+
+    #[test]
+    pub fn test() {
+        let mut v = vec![0u8; 16];
+        let ptr = v.as_mut_ptr();
+        let data = [1u8, 1, 1, 1];
+        unsafe {
+            ptr.copy_from((&data).as_ptr(), 4);
+        }
+        assert_eq!(unsafe { *ptr }, 1);
+        assert_eq!(unsafe { *ptr.add(4) }, 0);
+        assert_eq!(v[0], 1);
+        assert_eq!(v[15], 0);
     }
-    assert_eq!(unsafe { *ptr }, 1);
-    assert_eq!(unsafe { *ptr.add(4) }, 0);
-    assert_eq!(v[0], 1);
-    assert_eq!(v[15], 0);
+
+    #[test]
+    pub fn test_stack() {
+        let java_lang_object = "yv66vgAAADQATgcAMQoAAQAyCgARADMKADQANQoAAQA2CAA3CgARADgKADkAOgoAAQA7BwA8CAA9CgAKAD4DAA9CPwgAPwoAEQBACgARAEEHAEIBAAY8aW5pdD4BAAMoKVYBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQAPcmVnaXN0ZXJOYXRpdmVzAQAIZ2V0Q2xhc3MBABMoKUxqYXZhL2xhbmcvQ2xhc3M7AQAJU2lnbmF0dXJlAQAWKClMamF2YS9sYW5nL0NsYXNzPCo+OwEACGhhc2hDb2RlAQADKClJAQAGZXF1YWxzAQAVKExqYXZhL2xhbmcvT2JqZWN0OylaAQANU3RhY2tNYXBUYWJsZQEABWNsb25lAQAUKClMamF2YS9sYW5nL09iamVjdDsBAApFeGNlcHRpb25zBwBDAQAIdG9TdHJpbmcBABQoKUxqYXZhL2xhbmcvU3RyaW5nOwEABm5vdGlmeQEACW5vdGlmeUFsbAEABHdhaXQBAAQoSilWBwBEAQAFKEpJKVYBAAhmaW5hbGl6ZQcARQEACDxjbGluaXQ+AQAKU291cmNlRmlsZQEAC09iamVjdC5qYXZhAQAXamF2YS9sYW5nL1N0cmluZ0J1aWxkZXIMABIAEwwAFwAYBwBGDABHACUMAEgASQEAAUAMABsAHAcASgwASwBMDAAkACUBACJqYXZhL2xhbmcvSWxsZWdhbEFyZ3VtZW50RXhjZXB0aW9uAQAZdGltZW91dCB2YWx1ZSBpcyBuZWdhdGl2ZQwAEgBNAQAlbmFub3NlY29uZCB0aW1lb3V0IHZhbHVlIG91dCBvZiByYW5nZQwAKAApDAAWABMBABBqYXZhL2xhbmcvT2JqZWN0AQAkamF2YS9sYW5nL0Nsb25lTm90U3VwcG9ydGVkRXhjZXB0aW9uAQAeamF2YS9sYW5nL0ludGVycnVwdGVkRXhjZXB0aW9uAQATamF2YS9sYW5nL1Rocm93YWJsZQEAD2phdmEvbGFuZy9DbGFzcwEAB2dldE5hbWUBAAZhcHBlbmQBAC0oTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL2xhbmcvU3RyaW5nQnVpbGRlcjsBABFqYXZhL2xhbmcvSW50ZWdlcgEAC3RvSGV4U3RyaW5nAQAVKEkpTGphdmEvbGFuZy9TdHJpbmc7AQAVKExqYXZhL2xhbmcvU3RyaW5nOylWACEAEQAAAAAAAAAOAAEAEgATAAEAFAAAABkAAAABAAAAAbEAAAABABUAAAAGAAEAAAAlAQoAFgATAAABEQAXABgAAQAZAAAAAgAaAQEAGwAcAAAAAQAdAB4AAQAUAAAALgACAAIAAAALKiumAAcEpwAEA6wAAAACABUAAAAGAAEAAACVAB8AAAAFAAIJQAEBBAAgACEAAQAiAAAABAABACMAAQAkACUAAQAUAAAAPAACAAEAAAAkuwABWbcAAiq2AAO2AAS2AAUSBrYABSq2AAe4AAi2AAW2AAmwAAAAAQAVAAAABgABAAAA7AERACYAEwAAAREAJwATAAABEQAoACkAAQAiAAAABAABACoAEQAoACsAAgAUAAAAcgAEAAQAAAAyHwmUnAANuwAKWRILtwAMvx2bAAkdEg2kAA27AApZEg63AAy/HZ4ABx8KYUAqH7YAD7EAAAACABUAAAAiAAgAAAG/AAYBwAAQAcMAGgHEACQByAAoAckALAHMADEBzQAfAAAABgAEEAkJBwAiAAAABAABACoAEQAoABMAAgAUAAAAIgADAAEAAAAGKgm2AA+xAAAAAQAVAAAACgACAAAB9gAFAfcAIgAAAAQAAQAqAAQALAATAAIAFAAAABkAAAABAAAAAbEAAAABABUAAAAGAAEAAAIrACIAAAAEAAEALQAIAC4AEwABABQAAAAgAAAAAAAAAAS4ABCxAAAAAQAVAAAACgACAAAAKQADACoAAQAvAAAAAgAw";
+        let class_vec = base64::decode(java_lang_object).unwrap();
+        let bytecode = super::Class::from_vec(class_vec);
+        let klass = super::Klass::new(bytecode, super::metaspace::Classloader::ROOT, None, vec![]);
+        let klass = super::Arc::new(klass);
+        let method = klass
+            .bytecode
+            .get_method("toString", "()Ljava/lang/String;")
+            .unwrap();
+        let locals = vec![
+            0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8, 0xau8, 0xbu8, 0xcu8, 0xdu8, 0xeu8,
+            0xfu8,
+        ];
+        let mut operands = vec![0u8; 32];
+        let ptr = operands.as_mut_ptr();
+        let init = super::JavaFrame {
+            locals: locals,
+            operands: operands,
+            ptr: ptr,
+            klass: klass,
+            method: method,
+            pc: 0,
+        };
+        let mut stack = super::JavaStack {
+            frames: Vec::<super::JavaFrame>::with_capacity(10),
+            max_stack_size: 4096,
+        };
+        stack.frames.push(init);
+        stack.load(0, 1);
+        assert_eq!(
+            &stack.frames.last().unwrap().operands[..4],
+            &[0u8, 1u8, 2u8, 3u8]
+        );
+        assert_eq!(unsafe { *stack.frames.last().unwrap().ptr }, 0u8);
+        stack.load(3, 1);
+        assert_eq!(
+            &stack.frames.last().unwrap().operands[4..8],
+            &[0xcu8, 0xdu8, 0xeu8, 0xfu8]
+        );
+        stack.store(1, 1);
+        assert_eq!(unsafe { *stack.frames.last().unwrap().ptr }, 0xcu8);
+        assert_eq!(
+            &stack.frames.last().unwrap().locals[4..8],
+            &[0xcu8, 0xdu8, 0xeu8, 0xfu8]
+        );
+    }
 }

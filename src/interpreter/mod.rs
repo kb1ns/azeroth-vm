@@ -52,9 +52,8 @@ pub fn execute(stack: &mut JavaStack) {
     let mut pc: usize = stack.frames.last().expect("Won't happend").pc;
     while stack.has_next(pc) {
         // we must check if current class not be initialized
-        let frame = stack.frames.last().expect("Won't happend");
         if pc == 0 {
-            let klass = frame.klass.clone();
+            let klass = stack.current_class();
             if !ensure_initialized(stack, klass, pc) {
                 pc = 0;
                 continue;
@@ -73,64 +72,56 @@ pub fn execute(stack: &mut JavaStack) {
             }
             // aconst_null
             0x01 => {
-                stack.push(&NULL, 1);
+                stack.push(&NULL, PTR_SIZE);
                 pc = pc + 1;
             }
             // iconst -1 ~ 5
             0x02..=0x08 => {
                 let opr = stack.code_at(pc) as i32 - 3;
-                stack.push(&opr.memorized(), 1);
+                stack.push(&opr.to_ne_bytes(), PTR_SIZE);
                 pc = pc + 1;
             }
             // lconst 0 ~ 1
             // byteorder: higher first
             0x09..=0x0a => {
                 let opr = stack.code_at(pc) as i64 - 9;
-                let long = opr.memorized();
-                stack.push(&long[..], 2);
-                // stack.push(&long[4..], 1);
+                stack.push(&opr.to_ne_bytes(), 2 * PTR_SIZE);
                 pc = pc + 1;
             }
             // fconst 0 ~ 2
             0x0b..=0x0d => {
                 let opr = stack.code_at(pc) as f32 - 11.0;
-                stack.push(&opr.memorized(), 1);
+                stack.push(&opr.to_ne_bytes(), PTR_SIZE);
                 pc = pc + 1;
             }
             // dconst 0 ~ 1
             0x0e..=0x0f => {
                 let opr = stack.code_at(pc) as f64 - 14.0;
-                let double = opr.memorized();
-                stack.push(&double[..], 2);
-                // stack.push(&double[4..]);
+                stack.push(&opr.to_ne_bytes(), 2 * PTR_SIZE);
                 pc = pc + 1;
             }
             // bipush
             0x10 => {
-                stack.push(&(stack.code_at(pc + 1) as i32).memorized(), 1);
+                stack.push(&(stack.code_at(pc + 1) as i32).to_ne_bytes(), PTR_SIZE);
                 pc = pc + 2;
             }
             // sipush
             0x11 => {
                 let opr = (stack.code_at(pc + 1) as i32) << 8 | (stack.code_at(pc + 2) as i32);
-                stack.push(&opr.memorized(), 1);
+                stack.push(&opr.to_ne_bytes(), PTR_SIZE);
                 pc = pc + 3;
             }
             // ldc
             0x12 => {
-                let klass = stack
-                    .frames
-                    .last()
-                    .expect("Illegal class file")
-                    .klass
-                    .clone();
+                let klass = stack.current_class();
                 match klass
                     .bytecode
                     .constant_pool
                     .get(stack.code_at(pc + 1) as U2)
                 {
-                    ConstantItem::Float(f) => stack.push(&f.memorized(), 1),
-                    ConstantItem::Integer(i) => stack.push(&i.memorized(), 1),
+                    ConstantItem::Float(f) => stack.push(&f.to_ne_bytes(), PTR_SIZE),
+                    ConstantItem::Integer(i) => stack.push(&i.to_ne_bytes(), PTR_SIZE),
+                    // TODO String
                     _ => panic!("Illegal class file"),
                 }
                 pc = pc + 2;
@@ -138,15 +129,10 @@ pub fn execute(stack: &mut JavaStack) {
             // ldc2w
             0x14 => {
                 let opr = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
-                let klass = stack
-                    .frames
-                    .last()
-                    .expect("Illegal class file")
-                    .klass
-                    .clone();
+                let klass = stack.current_class();
                 match klass.bytecode.constant_pool.get(opr) {
-                    ConstantItem::Double(d) => stack.push(&d.memorized(), 2),
-                    ConstantItem::Long(l) => stack.push(&l.memorized(), 2),
+                    ConstantItem::Double(d) => stack.push(&d.to_ne_bytes(), 2 * PTR_SIZE),
+                    ConstantItem::Long(l) => stack.push(&l.to_ne_bytes(), 2 * PTR_SIZE),
                     _ => panic!("Illegal class file"),
                 }
                 pc = pc + 3;
@@ -247,8 +233,8 @@ pub fn execute(stack: &mut JavaStack) {
             0x59 => {
                 let current = stack.frames.last_mut().expect("Illegal operands stack:");
                 unsafe {
-                    let ptr = current.operands_ptr.sub(PTR_SIZE);
-                    current.operands_ptr.copy_from(ptr, PTR_SIZE);
+                    let dup = current.ptr.sub(PTR_SIZE);
+                    current.ptr.copy_from(dup, PTR_SIZE);
                 }
                 pc = pc + 1;
             }
@@ -323,9 +309,8 @@ pub fn execute(stack: &mut JavaStack) {
             }
             // getstatic
             0xb2 => {
-                let frame = &stack.frames.last_mut().expect("Won't happend");
-                let field_idx = (frame.code_at(pc + 1) as U2) << 8 | frame.code_at(pc + 2) as U2;
-                let klass = frame.klass.clone();
+                let field_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
+                let klass = stack.current_class();
                 let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
                 // TODO load class `c`, push `f` to operands according to the type `t`
                 let klass = find_class!(c).expect("ClassNotFoundException");
@@ -337,8 +322,8 @@ pub fn execute(stack: &mut JavaStack) {
                     match &field.value.get() {
                         None => panic!(""),
                         Some(value) => match value {
-                            Value::DWord(_) => stack.push(&Value::of_w(*value), 2),
-                            _ => stack.push(&Value::of(*value), 1),
+                            Value::DWord(_) => stack.push(&Value::of_w(*value), 2 * PTR_SIZE),
+                            _ => stack.push(&Value::of(*value), PTR_SIZE),
                         },
                     }
                 } else {
@@ -351,12 +336,7 @@ pub fn execute(stack: &mut JavaStack) {
             // putstatic
             0xb3 => {
                 let field_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
-                let klass = stack
-                    .frames
-                    .last()
-                    .expect("Illegal class file")
-                    .klass
-                    .clone();
+                let klass = stack.current_class();
                 let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
                 // TODO load class `c`, push `f` to operands according to the type `t`
                 let klass = find_class!(c).expect("ClassNotFoundException");
@@ -392,17 +372,16 @@ pub fn execute(stack: &mut JavaStack) {
                     // TODO
                     panic!("NullPointerException");
                 }
-
+                let objref = u32::from_ne_bytes(objref);
+                // TODO
+                let (offset, len) = klass.layout.get(&(c, f, t)).expect("NoSuchFieldException");
+                stack.fetch_heap(objref, *offset, *len);
+                pc = pc + 3;
             }
             // invokevirtual
             0xb6 => {
                 let method_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
-                let klass = stack
-                    .frames
-                    .last()
-                    .expect("Illegal class file")
-                    .klass
-                    .clone();
+                let klass = stack.current_class();
                 let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
                 // TODO
                 let klass = find_class!(c).expect("ClassNotFoundException");
@@ -426,12 +405,7 @@ pub fn execute(stack: &mut JavaStack) {
             // invokespecial
             0xb7 => {
                 let method_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
-                let klass = stack
-                    .frames
-                    .last()
-                    .expect("Illegal class file")
-                    .klass
-                    .clone();
+                let klass = stack.current_class();
                 let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
                 // TODO
                 let klass = find_class!(c).expect("ClassNotFoundException");
@@ -462,12 +436,7 @@ pub fn execute(stack: &mut JavaStack) {
             // invokestatic
             0xb8 => {
                 let method_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
-                let klass = stack
-                    .frames
-                    .last()
-                    .expect("Illegal class file")
-                    .klass
-                    .clone();
+                let klass = stack.current_class();
                 let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
                 // TODO
                 let klass = find_class!(c).expect("ClassNotFoundException");
@@ -490,12 +459,7 @@ pub fn execute(stack: &mut JavaStack) {
             // new
             0xbb => {
                 let class_index = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
-                let klass = stack
-                    .frames
-                    .last()
-                    .expect("Illegal class file")
-                    .klass
-                    .clone();
+                let klass = stack.current_class();
                 let class_name = klass.bytecode.constant_pool.get_str(class_index);
                 // TODO
                 let klass = find_class!(class_name).expect("ClassNotFoundException");
@@ -505,7 +469,8 @@ pub fn execute(stack: &mut JavaStack) {
                 }
                 let obj = jvm_heap!().allocate_object(&klass);
                 let v = obj.to_ne_bytes();
-                stack.push(&v, 1);
+                println!("allocate object, addr: {}", obj);
+                stack.push(&v, PTR_SIZE);
                 pc = pc + 3;
             }
             _ => panic!(format!(
