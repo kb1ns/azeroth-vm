@@ -49,10 +49,9 @@ impl JavaStack {
             }
             let current = self.frames.last_mut().expect("Illegal stack");
             unsafe {
+                let params = frame.locals.as_mut_ptr();
                 current.ptr = current.ptr.sub(slots * PTR_SIZE);
-                current
-                    .ptr
-                    .copy_to(frame.locals[..].as_mut_ptr(), slots * PTR_SIZE);
+                current.ptr.copy_to(params, slots * PTR_SIZE);
             }
             frame.pc = pc;
         }
@@ -178,12 +177,21 @@ impl JavaStack {
 
     pub fn fetch_heap(&mut self, addr: u32, offset: usize, len: usize) {
         let current = self.frames.last_mut().expect("Illegal operands");
+        let heap_ptr = jvm_heap!().base;
         unsafe {
-            let obj_payload_ptr = jvm_heap!().base.add(addr as usize + OBJ_HEADER_LEN);
-            if offset % 4 == 0 {
+            let obj_payload_ptr = heap_ptr.add(addr as usize + OBJ_HEADER_LEN);
+            if offset % PTR_SIZE == 0 {
                 let data_ptr = obj_payload_ptr.add(offset);
                 current.ptr.copy_from(data_ptr, len);
+                current.ptr = current.ptr.add(len);
             } else {
+                let offset = offset - offset % PTR_SIZE;
+                let data_ptr = obj_payload_ptr.add(offset);
+                let mut tmp = NULL;
+                data_ptr.copy_to(tmp.as_mut_ptr(), PTR_SIZE);
+                // FIXME shift
+                current.ptr.copy_from(tmp.as_mut_ptr(), PTR_SIZE);
+                current.ptr = current.ptr.add(PTR_SIZE);
             }
         }
     }
@@ -246,6 +254,8 @@ impl JavaFrame {
         println!("current method: {:?} {:?}", name, descriptor);
         println!("locals: {:02x?}", self.locals);
         println!("stacks: {:02x?}", self.operands);
+        println!("base: {:x?}", self.operands.as_ptr());
+        println!("ptr: {:x?}", self.ptr);
         println!("pc: {:?}", pc);
         println!(
             "instructions: {:02x?}\n",
@@ -256,20 +266,6 @@ impl JavaFrame {
 
 #[cfg(test)]
 mod test {
-
-    #[test]
-    pub fn test() {
-        let mut v = vec![0u8; 16];
-        let ptr = v.as_mut_ptr();
-        let data = [1u8, 1, 1, 1];
-        unsafe {
-            ptr.copy_from((&data).as_ptr(), 4);
-        }
-        assert_eq!(unsafe { *ptr }, 1);
-        assert_eq!(unsafe { *ptr.add(4) }, 0);
-        assert_eq!(v[0], 1);
-        assert_eq!(v[15], 0);
-    }
 
     #[test]
     pub fn test_stack() {
@@ -301,22 +297,63 @@ mod test {
             max_stack_size: 4096,
         };
         stack.frames.push(init);
+        // load, ptr: 0 -> 4
         stack.load(0, 1);
         assert_eq!(
             &stack.frames.last().unwrap().operands[..4],
             &[0u8, 1u8, 2u8, 3u8]
         );
-        assert_eq!(unsafe { *stack.frames.last().unwrap().ptr }, 0u8);
+        {
+            let ptr = stack.frames.last().unwrap().ptr;
+            assert_eq!(
+                ptr,
+                stack.frames.last_mut().unwrap().operands[4..].as_mut_ptr()
+            );
+        }
+        // load, ptr: 4 -> 8
         stack.load(3, 1);
         assert_eq!(
             &stack.frames.last().unwrap().operands[4..8],
             &[0xcu8, 0xdu8, 0xeu8, 0xfu8]
         );
+        {
+            let ptr = stack.frames.last().unwrap().ptr;
+            assert_eq!(
+                ptr,
+                stack.frames.last_mut().unwrap().operands[8..].as_mut_ptr()
+            );
+        }
+        // store, ptr: 8 -> 4
         stack.store(1, 1);
-        assert_eq!(unsafe { *stack.frames.last().unwrap().ptr }, 0xcu8);
+        {
+            let ptr = stack.frames.last().unwrap().ptr;
+            assert_eq!(
+                ptr,
+                stack.frames.last_mut().unwrap().operands[4..].as_mut_ptr()
+            );
+        }
         assert_eq!(
             &stack.frames.last().unwrap().locals[4..8],
             &[0xcu8, 0xdu8, 0xeu8, 0xfu8]
         );
+        // push, ptr: 4 -> 8
+        stack.push(&super::NULL, super::PTR_SIZE);
+        {
+            let ptr = stack.frames.last().unwrap().ptr;
+            assert_eq!(
+                ptr,
+                stack.frames.last_mut().unwrap().operands[8..].as_mut_ptr()
+            );
+        }
+        assert_eq!(&stack.frames.last().unwrap().operands[4..8], &[0, 0, 0, 0]);
+        // pop_w, ptr: 8 -> 0
+        stack.pop_w();
+        {
+            let ptr = stack.frames.last().unwrap().ptr;
+            assert_eq!(
+                ptr,
+                stack.frames.last_mut().unwrap().operands[..].as_mut_ptr()
+            );
+        }
     }
 }

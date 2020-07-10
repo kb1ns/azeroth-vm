@@ -1,6 +1,6 @@
 use super::RefKey;
 use crate::bytecode::{class::Class, method::Method};
-use crate::mem::{metaspace::*, Ref};
+use crate::mem::{metaspace::*, Ref, PTR_SIZE};
 use std::collections::HashMap;
 use std::mem::{size_of, transmute};
 use std::sync::{atomic::AtomicBool, Arc, Mutex};
@@ -171,8 +171,8 @@ impl Klass {
         };
         let mut len = std::cmp::min(len, size);
         for f in &current.fields {
-            if f.memory_size() > len % 4 && len % 4 != 0 {
-                len = len + 4 - len % 4;
+            if f.memory_size() > len % PTR_SIZE && len % PTR_SIZE != 0 {
+                len = len + PTR_SIZE - len % PTR_SIZE;
             }
             layout.insert(
                 RefKey::new(
@@ -184,8 +184,8 @@ impl Klass {
             );
             len = len + f.memory_size();
         }
-        if len % 4 != 0 {
-            len = len + 4 - len % 4;
+        if len % PTR_SIZE != 0 {
+            len = len + PTR_SIZE - len % PTR_SIZE;
         }
         (layout, len)
     }

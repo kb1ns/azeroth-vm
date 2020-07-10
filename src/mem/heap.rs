@@ -29,10 +29,11 @@ impl Region {
 
 impl Heap {
     pub fn init(old_size: u32, survivor_size: u32, eden_size: u32) {
-        let mut data =
-            Vec::<u8>::with_capacity((4 + old_size + eden_size + survivor_size * 2) as usize);
+        let mut data = Vec::<u8>::with_capacity(
+            PTR_SIZE + (old_size + eden_size + survivor_size * 2) as usize,
+        );
         let ptr = data.as_mut_ptr();
-        let eden = Region::new(4, eden_size);
+        let eden = Region::new(PTR_SIZE as u32, eden_size);
         let s0 = Region::new(eden_size, survivor_size);
         let s1 = Region::new(eden_size + survivor_size, survivor_size);
         let oldgen = Region::new(eden_size + 2 * survivor_size, old_size);
@@ -101,9 +102,12 @@ mod test {
         let klass = super::Klass::new(bytecode, super::metaspace::Classloader::ROOT, None, vec![]);
         let klass = super::Arc::new(klass);
         let obj0 = jvm_heap!().allocate_object(&klass);
-        assert_eq!(4, obj0);
+        assert_eq!(super::PTR_SIZE as u32, obj0);
         let obj1 = jvm_heap!().allocate_object(&klass);
-        assert_eq!(super::OBJ_HEADER_LEN + klass.len + obj0 as usize, obj1 as usize);
+        assert_eq!(
+            super::OBJ_HEADER_LEN + klass.len + obj0 as usize,
+            obj1 as usize
+        );
 
         let obj0_ptr = unsafe { jvm_heap!().base.add(obj0 as usize) };
         let obj_header: super::ObjectHeader = super::klass::ObjectHeader::from_vm_raw(obj0_ptr);

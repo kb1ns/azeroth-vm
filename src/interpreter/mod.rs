@@ -78,37 +78,37 @@ pub fn execute(stack: &mut JavaStack) {
             // iconst -1 ~ 5
             0x02..=0x08 => {
                 let opr = stack.code_at(pc) as i32 - 3;
-                stack.push(&opr.to_ne_bytes(), PTR_SIZE);
+                stack.push(&opr.to_le_bytes(), PTR_SIZE);
                 pc = pc + 1;
             }
             // lconst 0 ~ 1
             // byteorder: higher first
             0x09..=0x0a => {
                 let opr = stack.code_at(pc) as i64 - 9;
-                stack.push(&opr.to_ne_bytes(), 2 * PTR_SIZE);
+                stack.push(&opr.to_le_bytes(), 2 * PTR_SIZE);
                 pc = pc + 1;
             }
             // fconst 0 ~ 2
             0x0b..=0x0d => {
                 let opr = stack.code_at(pc) as f32 - 11.0;
-                stack.push(&opr.to_ne_bytes(), PTR_SIZE);
+                stack.push(&opr.to_le_bytes(), PTR_SIZE);
                 pc = pc + 1;
             }
             // dconst 0 ~ 1
             0x0e..=0x0f => {
                 let opr = stack.code_at(pc) as f64 - 14.0;
-                stack.push(&opr.to_ne_bytes(), 2 * PTR_SIZE);
+                stack.push(&opr.to_le_bytes(), 2 * PTR_SIZE);
                 pc = pc + 1;
             }
             // bipush
             0x10 => {
-                stack.push(&(stack.code_at(pc + 1) as i32).to_ne_bytes(), PTR_SIZE);
+                stack.push(&(stack.code_at(pc + 1) as i32).to_le_bytes(), PTR_SIZE);
                 pc = pc + 2;
             }
             // sipush
             0x11 => {
                 let opr = (stack.code_at(pc + 1) as i32) << 8 | (stack.code_at(pc + 2) as i32);
-                stack.push(&opr.to_ne_bytes(), PTR_SIZE);
+                stack.push(&opr.to_le_bytes(), PTR_SIZE);
                 pc = pc + 3;
             }
             // ldc
@@ -119,8 +119,8 @@ pub fn execute(stack: &mut JavaStack) {
                     .constant_pool
                     .get(stack.code_at(pc + 1) as U2)
                 {
-                    ConstantItem::Float(f) => stack.push(&f.to_ne_bytes(), PTR_SIZE),
-                    ConstantItem::Integer(i) => stack.push(&i.to_ne_bytes(), PTR_SIZE),
+                    ConstantItem::Float(f) => stack.push(&f.to_le_bytes(), PTR_SIZE),
+                    ConstantItem::Integer(i) => stack.push(&i.to_le_bytes(), PTR_SIZE),
                     // TODO String
                     _ => panic!("Illegal class file"),
                 }
@@ -131,8 +131,8 @@ pub fn execute(stack: &mut JavaStack) {
                 let opr = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
                 let klass = stack.current_class();
                 match klass.bytecode.constant_pool.get(opr) {
-                    ConstantItem::Double(d) => stack.push(&d.to_ne_bytes(), 2 * PTR_SIZE),
-                    ConstantItem::Long(l) => stack.push(&l.to_ne_bytes(), 2 * PTR_SIZE),
+                    ConstantItem::Double(d) => stack.push(&d.to_le_bytes(), 2 * PTR_SIZE),
+                    ConstantItem::Long(l) => stack.push(&l.to_le_bytes(), 2 * PTR_SIZE),
                     _ => panic!("Illegal class file"),
                 }
                 pc = pc + 3;
@@ -235,40 +235,41 @@ pub fn execute(stack: &mut JavaStack) {
                 unsafe {
                     let dup = current.ptr.sub(PTR_SIZE);
                     current.ptr.copy_from(dup, PTR_SIZE);
+                    current.ptr = current.ptr.add(PTR_SIZE);
                 }
                 pc = pc + 1;
             }
             // iadd
             0x60 => {
-                stack.bi_op(|a, b| (i32::from_ne_bytes(a) + i32::from_ne_bytes(b)).to_ne_bytes());
+                stack.bi_op(|a, b| (i32::from_le_bytes(a) + i32::from_le_bytes(b)).to_le_bytes());
                 pc = pc + 1;
             }
             // lsub
             0x65 => {
-                stack.bi_op_w(|a, b| (i64::from_ne_bytes(a) + i64::from_ne_bytes(b)).to_ne_bytes());
+                stack.bi_op_w(|a, b| (i64::from_le_bytes(a) + i64::from_le_bytes(b)).to_le_bytes());
                 pc = pc + 1;
             }
             // fmul
             0x6a => {
-                stack.bi_op(|a, b| (f32::from_ne_bytes(a) * f32::from_ne_bytes(b)).to_ne_bytes());
+                stack.bi_op(|a, b| (f32::from_le_bytes(a) * f32::from_le_bytes(b)).to_le_bytes());
                 pc = pc + 1;
             }
             // ddiv
             0x6f => {
-                stack.bi_op_w(|a, b| (f64::from_ne_bytes(a) / f64::from_ne_bytes(b)).to_ne_bytes());
+                stack.bi_op_w(|a, b| (f64::from_le_bytes(a) / f64::from_le_bytes(b)).to_le_bytes());
                 pc = pc + 1;
             }
             // iinc
             0x84 => {
                 let index = stack.code_at(pc + 1) as usize;
                 let cst = stack.code_at(pc + 2) as i32;
-                let new = i32::from_ne_bytes(stack.get(index)) + cst;
-                stack.set(index, new.to_ne_bytes());
+                let new = i32::from_le_bytes(stack.get(index)) + cst;
+                stack.set(index, new.to_le_bytes());
                 pc = pc + 3;
             }
             // ifeq, ifne, iflt, ifge, ifgt, ifle
             0x99..=0x9e => {
-                let opr = i32::from_ne_bytes(stack.pop());
+                let opr = i32::from_le_bytes(stack.pop());
                 if opr == 0 && instruction == 0x99
                     || opr != 0 && instruction == 0x9a
                     || opr < 0 && instruction == 0x9b
@@ -285,8 +286,8 @@ pub fn execute(stack: &mut JavaStack) {
             // if_icmpge
             0xa2 => {
                 let (v1, v2) = {
-                    let v2 = i32::from_ne_bytes(stack.pop());
-                    let v1 = i32::from_ne_bytes(stack.pop());
+                    let v2 = i32::from_le_bytes(stack.pop());
+                    let v1 = i32::from_le_bytes(stack.pop());
                     (v1, v2)
                 };
                 if v1 >= v2 {
@@ -368,14 +369,39 @@ pub fn execute(stack: &mut JavaStack) {
                     continue;
                 }
                 let objref = stack.pop();
+                println!("{:2x?}", objref);
                 if objref == NULL {
                     // TODO
                     panic!("NullPointerException");
                 }
-                let objref = u32::from_ne_bytes(objref);
+                let objref = u32::from_le_bytes(objref);
                 // TODO
                 let (offset, len) = klass.layout.get(&(c, f, t)).expect("NoSuchFieldException");
                 stack.fetch_heap(objref, *offset, *len);
+                pc = pc + 3;
+            }
+            // putfield
+            0xb5 => {
+                let field_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
+                let frame = stack.frames.last().expect("Illegal class file");
+                let klass = frame.klass.clone();
+                let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
+                // TODO load class `c`, push `f` to operands according to the type `t`
+                let klass = find_class!(c).expect("ClassNotFoundException");
+                if !ensure_initialized(stack, klass.clone(), pc) {
+                    pc = 0;
+                    continue;
+                }
+                let objref = stack.pop();
+                println!("{:2x?}", objref);
+                if objref == NULL {
+                    // TODO
+                    panic!("NullPointerException");
+                }
+                let objref = u32::from_le_bytes(objref);
+                // TODO
+                let (offset, len) = klass.layout.get(&(c, f, t)).expect("NoSuchFieldException");
+
                 pc = pc + 3;
             }
             // invokevirtual
@@ -468,7 +494,7 @@ pub fn execute(stack: &mut JavaStack) {
                     continue;
                 }
                 let obj = jvm_heap!().allocate_object(&klass);
-                let v = obj.to_ne_bytes();
+                let v = obj.to_le_bytes();
                 println!("allocate object, addr: {}", obj);
                 stack.push(&v, PTR_SIZE);
                 pc = pc + 3;
