@@ -401,7 +401,7 @@ pub fn execute(stack: &mut JavaStack) {
                 let objref = u32::from_le_bytes(objref);
                 // TODO
                 let (offset, len) = klass.layout.get(&(c, f, t)).expect("NoSuchFieldException");
-
+                stack.set_heap_aligned(objref, *offset, *len);
                 pc = pc + 3;
             }
             // invokevirtual
@@ -411,10 +411,14 @@ pub fn execute(stack: &mut JavaStack) {
                 let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
                 // TODO
                 let klass = find_class!(c).expect("ClassNotFoundException");
-                if !ensure_initialized(stack, klass.clone(), pc) {
+                if !ensure_initialized(stack, klass, pc) {
                     pc = 0;
                     continue;
                 }
+                let addr = u32::from_le_bytes(stack.top());
+                let obj_ptr = unsafe { jvm_heap!().base.add(addr as usize) };
+                let obj_header = ObjectHeader::from_vm_raw(obj_ptr);
+                let klass = unsafe { &*obj_header.klass };
                 if let Some(method) = klass.get_method_in_vtable(m, t) {
                     let new_frame = JavaFrame::new(klass, method);
                     pc = stack.invoke(new_frame, pc + 3);
@@ -480,6 +484,27 @@ pub fn execute(stack: &mut JavaStack) {
                 } else {
                     // TODO
                     panic!("NoSuchMethodException");
+                }
+            }
+            // invokeinterface
+            0xb9 => {
+                let method_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
+                let klass = stack.current_class();
+                let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
+                // TODO
+                let klass = find_class!(c).expect("ClassNotFoundException");
+                if !ensure_initialized(stack, klass.clone(), pc) {
+                    pc = 0;
+                    continue;
+                }
+                if let Some(method) = klass.bytecode.get_method(m, t) {
+                    let new_frame = JavaFrame::new(klass, method);
+                    pc = stack.invoke(new_frame, pc + 5);
+                } else if let Some(method) = klass.get_method_in_itable(c, m, t) {
+                    let new_frame = JavaFrame::new(klass, method);
+                    pc = stack.invoke(new_frame, pc + 5);
+                } else {
+                    panic!("NoSuchMethodError");
                 }
             }
             // new

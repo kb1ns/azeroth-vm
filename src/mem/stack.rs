@@ -3,18 +3,34 @@ use crate::interpreter;
 use crate::mem::{klass::*, *};
 use std::sync::Arc;
 
+const DEFAULT_STACK_LEN: usize = 128 * 1024;
+
 pub struct JavaStack {
-    // TODO thread
-    pub frames: Vec<JavaFrame>,
+    pub data: Vec<u8>,
+    pub frame: *mut u8,
     pub max_stack_size: usize,
 }
 
+pub struct JavaFrame {
+    pub locals: *mut u8,
+    pub operands: *mut u8,
+    pub klass: *const Klass,
+    pub method: *const Method,
+    pub pc: usize,
+}
+
 impl JavaStack {
-    // TODO
-    pub fn new() -> JavaStack {
+    pub fn new() -> Self {
+        with_capacity(DEFAULT_STACK_LEN)
+    }
+
+    pub fn with_capacity(len: usize) -> Self {
+        let mut data = vec![0u8; len];
+        let ptr = data.as_mut_ptr();
         JavaStack {
-            frames: Vec::<JavaFrame>::new(),
-            max_stack_size: 0,
+            data: data,
+            frame: ptr,
+            max_stack_size: len,
         }
     }
 
@@ -175,24 +191,57 @@ impl JavaStack {
         self.push(&f(left, right), 2 * PTR_SIZE);
     }
 
+    pub fn top(&self) -> Slot {
+        let mut v = NULL;
+        unsafe {
+            self.frames
+                .last()
+                .expect("Illegal operands")
+                .ptr
+                .sub(PTR_SIZE)
+                .copy_to(v.as_mut_ptr(), PTR_SIZE);
+        }
+        v
+    }
+
+    pub fn top_w(&self) -> WideSlot {
+        let mut v = LONG_NULL;
+        unsafe {
+            self.frames
+                .last()
+                .expect("Illegal operands")
+                .ptr
+                .sub(PTR_SIZE)
+                .copy_to(v.as_mut_ptr(), 2 * PTR_SIZE);
+        }
+        v
+    }
+
     pub fn fetch_heap(&mut self, addr: u32, offset: usize, len: usize) {
         let current = self.frames.last_mut().expect("Illegal operands");
         let heap_ptr = jvm_heap!().base;
         unsafe {
-            let obj_payload_ptr = heap_ptr.add(addr as usize + OBJ_HEADER_LEN);
-            if offset % PTR_SIZE == 0 {
-                let data_ptr = obj_payload_ptr.add(offset);
-                current.ptr.copy_from(data_ptr, len);
-                current.ptr = current.ptr.add(len);
-            } else {
-                let offset = offset - offset % PTR_SIZE;
-                let data_ptr = obj_payload_ptr.add(offset);
-                let mut tmp = NULL;
-                data_ptr.copy_to(tmp.as_mut_ptr(), PTR_SIZE);
-                // FIXME shift
-                current.ptr.copy_from(tmp.as_mut_ptr(), PTR_SIZE);
+            let target = heap_ptr.add(addr as usize + OBJ_HEADER_LEN + offset);
+            current.ptr.copy_from(target, len);
+            if len <= PTR_SIZE {
                 current.ptr = current.ptr.add(PTR_SIZE);
+            } else {
+                current.ptr = current.ptr.add(2 * PTR_SIZE);
             }
+        }
+    }
+
+    pub fn set_heap_aligned(&mut self, addr: u32, offset: usize, len: usize) {
+        let current = self.frames.last_mut().expect("Illegal operands");
+        let heap_ptr = jvm_heap!().base;
+        unsafe {
+            let target = heap_ptr.add(addr as usize + OBJ_HEADER_LEN + offset);
+            if len <= PTR_SIZE {
+                current.ptr = current.ptr.sub(PTR_SIZE)
+            } else {
+                current.ptr = current.ptr.sub(2 * PTR_SIZE)
+            }
+            target.copy_from(current.ptr, len);
         }
     }
 
@@ -200,7 +249,6 @@ impl JavaStack {
         self.frames.last().expect("Illegal stack").klass.clone()
     }
 }
-
 pub struct JavaFrame {
     pub locals: Vec<u8>,
     pub operands: Vec<u8>,
