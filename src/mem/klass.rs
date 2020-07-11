@@ -28,13 +28,13 @@ pub const OBJ_HEADER_LEN: usize = size_of::<ObjectHeader>();
 pub type ObjectHeaderRaw = [u8; OBJ_HEADER_LEN];
 
 impl ObjectHeader {
-    pub fn new(klass: &Arc<Klass>) -> ObjectHeader {
+    pub fn new(klass: Arc<Klass>) -> ObjectHeader {
         // The Arc counts are not affected.
         // The pointer is valid as long as the Arc has strong counts.
         // In another word, it is valid before the Klass unload.
         ObjectHeader {
             mark: 0,
-            klass: Arc::as_ptr(klass),
+            klass: Arc::into_raw(klass),
         }
     }
 

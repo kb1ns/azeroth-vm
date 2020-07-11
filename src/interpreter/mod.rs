@@ -409,16 +409,12 @@ pub fn execute(stack: &mut JavaStack) {
                 let method_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
                 let klass = stack.current_class();
                 let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
-                // TODO
-                let klass = find_class!(c).expect("ClassNotFoundException");
-                if !ensure_initialized(stack, klass, pc) {
-                    pc = 0;
-                    continue;
-                }
                 let addr = u32::from_le_bytes(stack.top());
-                let obj_ptr = unsafe { jvm_heap!().base.add(addr as usize) };
-                let obj_header = ObjectHeader::from_vm_raw(obj_ptr);
-                let klass = unsafe { &*obj_header.klass };
+                let heap_ptr = jvm_heap!().base;
+                let klass = unsafe {
+                    let obj_header = ObjectHeader::from_vm_raw(heap_ptr.add(addr as usize));
+                    Arc::from_raw(obj_header.klass)
+                };
                 if let Some(method) = klass.get_method_in_vtable(m, t) {
                     let new_frame = JavaFrame::new(klass, method);
                     pc = stack.invoke(new_frame, pc + 3);
@@ -491,12 +487,12 @@ pub fn execute(stack: &mut JavaStack) {
                 let method_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
                 let klass = stack.current_class();
                 let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
-                // TODO
-                let klass = find_class!(c).expect("ClassNotFoundException");
-                if !ensure_initialized(stack, klass.clone(), pc) {
-                    pc = 0;
-                    continue;
-                }
+                let addr = u32::from_le_bytes(stack.top());
+                let heap_ptr = jvm_heap!().base;
+                let klass = unsafe {
+                    let obj_header = ObjectHeader::from_vm_raw(heap_ptr.add(addr as usize));
+                    Arc::from_raw(obj_header.klass)
+                };
                 if let Some(method) = klass.bytecode.get_method(m, t) {
                     let new_frame = JavaFrame::new(klass, method);
                     pc = stack.invoke(new_frame, pc + 5);

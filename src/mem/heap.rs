@@ -57,7 +57,7 @@ impl Heap {
             // TODO gc
             panic!("OutOfMemoryError");
         }
-        let obj_header = ObjectHeader::new(klass);
+        let obj_header = ObjectHeader::new(Arc::clone(klass));
         unsafe {
             let eden_ptr = self.base.add(eden.offset as usize);
             // copy object header

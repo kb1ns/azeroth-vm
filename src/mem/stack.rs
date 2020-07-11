@@ -6,31 +6,16 @@ use std::sync::Arc;
 const DEFAULT_STACK_LEN: usize = 128 * 1024;
 
 pub struct JavaStack {
-    pub data: Vec<u8>,
-    pub frame: *mut u8,
+    pub frames: Vec<JavaFrame>,
     pub max_stack_size: usize,
-}
-
-pub struct JavaFrame {
-    pub locals: *mut u8,
-    pub operands: *mut u8,
-    pub klass: *const Klass,
-    pub method: *const Method,
-    pub pc: usize,
 }
 
 impl JavaStack {
     pub fn new() -> Self {
-        with_capacity(DEFAULT_STACK_LEN)
-    }
-
-    pub fn with_capacity(len: usize) -> Self {
-        let mut data = vec![0u8; len];
-        let ptr = data.as_mut_ptr();
         JavaStack {
-            data: data,
-            frame: ptr,
-            max_stack_size: len,
+            frames: Vec::new(),
+            // TODO
+            max_stack_size: 0,
         }
     }
 
