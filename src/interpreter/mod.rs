@@ -1,6 +1,5 @@
 use crate::bytecode::{atom::*, constant_pool::ConstantItem, *};
 use crate::mem::{heap::*, klass::*, metaspace::*, stack::*, *};
-use std::sync::atomic::*;
 use std::sync::Arc;
 
 use log::trace;
@@ -18,47 +17,12 @@ pub struct JavaError {
     pub throwable: String,
 }
 
-fn ensure_initialized(stack: &mut JavaStack, klass: Arc<Klass>, pc: usize) -> bool {
-    if !klass.initialized.load(Ordering::Relaxed) {
-        if let Ok(_) = klass.mutex.try_lock() {
-            if !klass.initialized.load(Ordering::Relaxed) {
-                klass.initialized.store(true, Ordering::Relaxed);
-                trace!("initialize class {}", klass.bytecode.get_name());
-                let initialized = match klass.bytecode.get_method("<clinit>", "()V") {
-                    Some(clinit) => {
-                        let frame = JavaFrame::new(klass.clone(), clinit);
-                        stack.invoke(frame, pc);
-                        false
-                    }
-                    None => true,
-                };
-                let superclass = klass.bytecode.get_super_class();
-                if !superclass.is_empty() {
-                    // TODO
-                    let superclass = find_class!(superclass).expect("ClassNotFoundException");
-                    ensure_initialized(stack, superclass, 0);
-                }
-                return initialized;
-            }
-        }
-    }
-    true
-}
-
 pub fn execute(stack: &mut JavaStack) {
     if stack.is_empty() {
         return;
     }
     let mut pc: usize = stack.frames.last().expect("Won't happend").pc;
     while stack.has_next(pc) {
-        // we must check if current class not be initialized
-        if pc == 0 {
-            let klass = stack.current_class();
-            if !ensure_initialized(stack, klass, pc) {
-                pc = 0;
-                continue;
-            }
-        }
         let instruction = {
             let frame = stack.frames.last().expect("Won't happend");
             // TODO if debug
@@ -113,28 +77,25 @@ pub fn execute(stack: &mut JavaStack) {
             }
             // ldc
             0x12 => {
-                let klass = stack.current_class();
-                match klass
-                    .bytecode
-                    .constant_pool
-                    .get(stack.code_at(pc + 1) as U2)
-                {
-                    ConstantItem::Float(f) => stack.push(&f.to_le_bytes(), PTR_SIZE),
-                    ConstantItem::Integer(i) => stack.push(&i.to_le_bytes(), PTR_SIZE),
+                let class = stack.class();
+                let v = match stack.class().constant_pool.get(stack.code_at(pc + 1) as U2) {
+                    ConstantItem::Float(f) => f.to_le_bytes(),
+                    ConstantItem::Integer(i) => i.to_le_bytes(),
                     // TODO String
                     _ => panic!("Illegal class file"),
-                }
+                };
+                stack.push(&v, PTR_SIZE);
                 pc = pc + 2;
             }
             // ldc2w
             0x14 => {
                 let opr = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
-                let klass = stack.current_class();
-                match klass.bytecode.constant_pool.get(opr) {
-                    ConstantItem::Double(d) => stack.push(&d.to_le_bytes(), 2 * PTR_SIZE),
-                    ConstantItem::Long(l) => stack.push(&l.to_le_bytes(), 2 * PTR_SIZE),
+                let v = match stack.class().constant_pool.get(opr) {
+                    ConstantItem::Double(d) => d.to_le_bytes(),
+                    ConstantItem::Long(l) => l.to_le_bytes(),
                     _ => panic!("Illegal class file"),
-                }
+                };
+                stack.push(&v, 2 * PTR_SIZE);
                 pc = pc + 3;
             }
             // iload/fload
@@ -244,6 +205,10 @@ pub fn execute(stack: &mut JavaStack) {
                 stack.bi_op(|a, b| (i32::from_le_bytes(a) + i32::from_le_bytes(b)).to_le_bytes());
                 pc = pc + 1;
             }
+            0x64 => {
+                stack.bi_op(|a, b| (i32::from_le_bytes(a) + i32::from_le_bytes(b)).to_le_bytes());
+                pc = pc + 1;
+            }
             // lsub
             0x65 => {
                 stack.bi_op_w(|a, b| (i64::from_le_bytes(a) + i64::from_le_bytes(b)).to_le_bytes());
@@ -311,15 +276,14 @@ pub fn execute(stack: &mut JavaStack) {
             // getstatic
             0xb2 => {
                 let field_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
-                let klass = stack.current_class();
-                let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
+                let class = stack.class();
+                let (c, (f, t)) = class.constant_pool.get_javaref(field_idx);
+                let (c, f, t) = (c.to_string(), f.to_string(), t.to_string());
                 // TODO load class `c`, push `f` to operands according to the type `t`
-                let klass = find_class!(c).expect("ClassNotFoundException");
-                if !ensure_initialized(stack, klass.clone(), pc) {
-                    pc = 0;
-                    continue;
-                }
-                if let Some(ref field) = klass.bytecode.get_field(f, t) {
+                let klass = class_arena!()
+                    .load_class(&c, stack, pc)
+                    .expect("ClassNotFoundException");
+                if let Some(ref field) = klass.bytecode.get_field(&f, &t) {
                     match &field.value.get() {
                         None => panic!(""),
                         Some(value) => match value {
@@ -337,18 +301,16 @@ pub fn execute(stack: &mut JavaStack) {
             // putstatic
             0xb3 => {
                 let field_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
-                let klass = stack.current_class();
-                let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
+                let (c, (f, t)) = stack.class().constant_pool.get_javaref(field_idx);
+                let (c, f, t) = (c.to_string(), f.to_string(), t.to_string());
                 // TODO load class `c`, push `f` to operands according to the type `t`
-                let klass = find_class!(c).expect("ClassNotFoundException");
-                if !ensure_initialized(stack, klass.clone(), pc) {
-                    pc = 0;
-                    continue;
-                }
-                if let Some(ref field) = klass.bytecode.get_field(f, t) {
-                    &field.value.set(match t {
+                let klass = class_arena!()
+                    .load_class(&c, stack, pc)
+                    .expect("ClassNotFoundException");
+                if let Some(ref field) = klass.bytecode.get_field(&f, &t) {
+                    &field.value.set(match t.as_ref() {
                         "D" | "J" => Some(Value::eval_w(stack.pop_w())),
-                        _ => Some(Value::eval(stack.pop(), t)),
+                        _ => Some(Value::eval(stack.pop(), &t)),
                     });
                 } else {
                     // TODO
@@ -359,70 +321,72 @@ pub fn execute(stack: &mut JavaStack) {
             // getfield
             0xb4 => {
                 let field_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
-                let frame = stack.frames.last().expect("Illegal class file");
-                let klass = frame.klass.clone();
-                let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
+                // let frame = stack.frames.last().expect("Illegal class file");
+                // let klass = frame.klass.clone();
+                let (c, (f, t)) = stack.class().constant_pool.get_javaref(field_idx);
+                let (c, f, t) = (c.to_string(), f.to_string(), t.to_string());
                 // TODO load class `c`, push `f` to operands according to the type `t`
-                let klass = find_class!(c).expect("ClassNotFoundException");
-                if !ensure_initialized(stack, klass.clone(), pc) {
-                    pc = 0;
-                    continue;
-                }
+                let klass = class_arena!()
+                    .load_class(&c, stack, pc)
+                    .expect("ClassNotFoundException");
                 let objref = stack.pop();
-                println!("{:2x?}", objref);
                 if objref == NULL {
                     // TODO
                     panic!("NullPointerException");
                 }
                 let objref = u32::from_le_bytes(objref);
                 // TODO
-                let (offset, len) = klass.layout.get(&(c, f, t)).expect("NoSuchFieldException");
+                let (offset, len) = klass
+                    .layout
+                    .get(&(c.as_ref(), f.as_ref(), t.as_ref()))
+                    .expect("NoSuchFieldException");
                 stack.fetch_heap(objref, *offset, *len);
                 pc = pc + 3;
             }
             // putfield
             0xb5 => {
                 let field_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
-                let frame = stack.frames.last().expect("Illegal class file");
-                let klass = frame.klass.clone();
-                let (c, (f, t)) = klass.bytecode.constant_pool.get_javaref(field_idx);
+                let (c, (f, t)) = stack.class().constant_pool.get_javaref(field_idx);
+                let (c, f, t) = (c.to_string(), f.to_string(), t.to_string());
                 // TODO load class `c`, push `f` to operands according to the type `t`
-                let klass = find_class!(c).expect("ClassNotFoundException");
-                if !ensure_initialized(stack, klass.clone(), pc) {
-                    pc = 0;
-                    continue;
-                }
+                let klass = class_arena!()
+                    .load_class(&c, stack, pc)
+                    .expect("ClassNotFoundException");
                 let objref = stack.pop();
-                println!("{:2x?}", objref);
                 if objref == NULL {
                     // TODO
                     panic!("NullPointerException");
                 }
                 let objref = u32::from_le_bytes(objref);
                 // TODO
-                let (offset, len) = klass.layout.get(&(c, f, t)).expect("NoSuchFieldException");
+                let (offset, len) = klass
+                    .layout
+                    .get(&(c.as_ref(), f.as_ref(), t.as_ref()))
+                    .expect("NoSuchFieldException");
                 stack.set_heap_aligned(objref, *offset, *len);
                 pc = pc + 3;
             }
             // invokevirtual
             0xb6 => {
                 let method_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
-                let klass = stack.current_class();
-                let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
+                let class = stack.class();
+                let (c, (m, t)) = class.constant_pool.get_javaref(method_idx);
+                let (c, m, t) = (c.to_string(), m.to_string(), t.to_string());
                 let addr = u32::from_le_bytes(stack.top());
                 let heap_ptr = jvm_heap!().base;
                 let klass = unsafe {
                     let obj_header = ObjectHeader::from_vm_raw(heap_ptr.add(addr as usize));
                     Arc::from_raw(obj_header.klass)
                 };
-                if let Some(method) = klass.get_method_in_vtable(m, t) {
-                    let new_frame = JavaFrame::new(klass, method);
+                if let Some(method_ref) = klass.get_method_in_vtable(&m, &t) {
+                    let new_frame = JavaFrame::new((*method_ref).0, (*method_ref).1);
                     pc = stack.invoke(new_frame, pc + 3);
-                } else if let Some(method) = klass.bytecode.get_method(m, t) {
+                } else if let Some(method) = klass.bytecode.get_method(&m, &t) {
                     if !method.is_final() {
                         panic!("ClassVerifyError");
                     }
-                    let new_frame = JavaFrame::new(klass, method);
+                    let new_frame =
+                        JavaFrame::new(Arc::as_ptr(&klass.bytecode), Arc::as_ptr(&method));
                     pc = stack.invoke(new_frame, pc + 3);
                 } else {
                     panic!("NoSuchMethodError");
@@ -431,51 +395,49 @@ pub fn execute(stack: &mut JavaStack) {
             // invokespecial
             0xb7 => {
                 let method_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
-                let klass = stack.current_class();
-                let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
+                let (c, (m, t)) = stack.class().constant_pool.get_javaref(method_idx);
+                let (c, m, t) = (c.to_string(), m.to_string(), t.to_string());
                 // TODO
-                let klass = find_class!(c).expect("ClassNotFoundException");
-                if !ensure_initialized(stack, klass.clone(), pc) {
-                    pc = 0;
-                    continue;
-                }
-                if let Some(method) = klass.bytecode.get_method(m, t) {
-                    let new_frame = JavaFrame::new(klass, method);
+                let klass = class_arena!()
+                    .load_class(&c, stack, pc)
+                    .expect("ClassNotFoundException");
+                if let Some(method) = klass.bytecode.get_method(&m, &t) {
+                    let new_frame =
+                        JavaFrame::new(Arc::as_ptr(&klass.bytecode), Arc::as_ptr(&method));
                     pc = stack.invoke(new_frame, pc + 3);
                 } else {
-                    let mut current = klass;
-                    loop {
-                        match &current.superclass {
-                            Some(superclass) => {
-                                if let Some(method) = superclass.bytecode.get_method(m, t) {
-                                    let new_frame = JavaFrame::new(current, method);
-                                    pc = stack.invoke(new_frame, pc + 3);
-                                    break;
-                                }
-                                current = Arc::clone(superclass);
-                            }
-                            None => panic!("NoSuchMethodError"),
-                        }
-                    }
+                    // let mut current = klass;
+                    // loop {
+                    //     match &current.superclass {
+                    //         Some(superclass) => {
+                    //             if let Some(method) = superclass.bytecode.get_method(m, t) {
+                    //                 let new_frame = JavaFrame::new(current, method);
+                    //                 pc = stack.invoke(new_frame, pc + 3);
+                    //                 break;
+                    //             }
+                    //             current = Arc::clone(superclass);
+                    //         }
+                    //         None => panic!("NoSuchMethodError"),
+                    //     }
+                    // }
                 }
             }
             // invokestatic
             0xb8 => {
                 let method_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
-                let klass = stack.current_class();
-                let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
+                let (c, (m, t)) = stack.class().constant_pool.get_javaref(method_idx);
                 // TODO
-                let klass = find_class!(c).expect("ClassNotFoundException");
-                if !ensure_initialized(stack, klass.clone(), pc) {
-                    pc = 0;
-                    continue;
-                }
-                if let Some(ref method) = klass.bytecode.get_method(m, t) {
+                let (c, m, t) = (c.to_string(), m.to_string(), t.to_string());
+                let klass = class_arena!()
+                    .load_class(&c, stack, pc)
+                    .expect("ClassNotFoundException");
+                if let Some(method) = klass.bytecode.get_method(&m, &t) {
                     // TODO
                     if !method.is_static() {
                         panic!("");
                     }
-                    let new_frame = JavaFrame::new(klass, Arc::clone(method));
+                    let new_frame =
+                        JavaFrame::new(Arc::as_ptr(&klass.bytecode), Arc::as_ptr(&method));
                     pc = stack.invoke(new_frame, pc + 3);
                 } else {
                     // TODO
@@ -485,8 +447,7 @@ pub fn execute(stack: &mut JavaStack) {
             // invokeinterface
             0xb9 => {
                 let method_idx = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
-                let klass = stack.current_class();
-                let (c, (m, t)) = klass.bytecode.constant_pool.get_javaref(method_idx);
+                let (c, (m, t)) = stack.class().constant_pool.get_javaref(method_idx);
                 let addr = u32::from_le_bytes(stack.top());
                 let heap_ptr = jvm_heap!().base;
                 let klass = unsafe {
@@ -494,10 +455,11 @@ pub fn execute(stack: &mut JavaStack) {
                     Arc::from_raw(obj_header.klass)
                 };
                 if let Some(method) = klass.bytecode.get_method(m, t) {
-                    let new_frame = JavaFrame::new(klass, method);
+                    let new_frame =
+                        JavaFrame::new(Arc::as_ptr(&klass.bytecode), Arc::as_ptr(&method));
                     pc = stack.invoke(new_frame, pc + 5);
-                } else if let Some(method) = klass.get_method_in_itable(c, m, t) {
-                    let new_frame = JavaFrame::new(klass, method);
+                } else if let Some(method_ref) = klass.get_method_in_itable(c, m, t) {
+                    let new_frame = JavaFrame::new((*method_ref).0, (*method_ref).1);
                     pc = stack.invoke(new_frame, pc + 5);
                 } else {
                     panic!("NoSuchMethodError");
@@ -506,14 +468,11 @@ pub fn execute(stack: &mut JavaStack) {
             // new
             0xbb => {
                 let class_index = (stack.code_at(pc + 1) as U2) << 8 | stack.code_at(pc + 2) as U2;
-                let klass = stack.current_class();
-                let class_name = klass.bytecode.constant_pool.get_str(class_index);
+                let class_name = stack.class().constant_pool.get_str(class_index).to_string();
                 // TODO
-                let klass = find_class!(class_name).expect("ClassNotFoundException");
-                if !ensure_initialized(stack, klass.clone(), pc) {
-                    pc = 0;
-                    continue;
-                }
+                let klass = class_arena!()
+                    .load_class(&class_name, stack, pc)
+                    .expect("ClassNotFoundException");
                 let obj = jvm_heap!().allocate_object(&klass);
                 let v = obj.to_le_bytes();
                 println!("allocate object, addr: {}", obj);

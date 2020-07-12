@@ -1,10 +1,12 @@
-use crate::mem::{klass::Klass, *};
-use std::sync::Arc;
+use crate::mem::{klass::Klass, stack::*, *};
+use log::trace;
+use std::sync::{Arc, Mutex};
 
 pub struct ClassArena {
     pub cp: Classpath,
     // TODO allow a class been loaded by different classloader instances
     pub classes: CHashMap<String, Arc<Klass>>,
+    mutex: Mutex<u32>,
 }
 
 pub enum Classloader {
@@ -16,11 +18,11 @@ pub enum Classloader {
 pub static mut CLASSES: Option<Arc<ClassArena>> = None;
 
 #[macro_export]
-macro_rules! find_class {
-    ($x:expr) => {
+macro_rules! class_arena {
+    () => {
         unsafe {
             match CLASSES {
-                Some(ref classes) => classes.load_class($x),
+                Some(ref classes) => classes,
                 None => panic!("ClassArena not initialized"),
             }
         }
@@ -36,11 +38,11 @@ impl ClassArena {
         for path in app_paths {
             cp.append_app_classpath(path);
         }
-
         unsafe {
             CLASSES.replace(Arc::new(ClassArena {
                 cp: cp,
                 classes: CHashMap::new(),
+                mutex: Mutex::new(0),
             }));
         }
     }
@@ -58,36 +60,55 @@ impl ClassArena {
         None
     }
 
-    pub fn load_class(&self, class: &str) -> Result<Arc<Klass>, String> {
+    pub fn load_class(
+        &self,
+        class_name: &str,
+        stack: &mut JavaStack,
+        pc: usize,
+    ) -> Result<Arc<Klass>, String> {
         let class_name = Regex::new(r"\.")
             .unwrap()
-            .replace_all(class, "/")
+            .replace_all(class_name, "/")
             .into_owned();
         match self.classes.get(&class_name) {
-            None => match self.parse_class(&class_name) {
-                None => Err(class.to_owned()),
-                Some(k) => {
-                    let superclass = k.get_super_class();
-                    let superclass = if !superclass.is_empty() {
-                        Some(self.load_class(superclass)?)
-                    } else {
-                        None
-                    };
-                    let ifs = k.get_interfaces();
-                    let mut interfaces: Vec<Arc<Klass>> = vec![];
-                    if !ifs.is_empty() {
-                        for i in ifs {
-                            interfaces.push(self.load_class(i)?);
-                        }
-                    }
-                    // TODO classloader
-                    let klass = Arc::new(Klass::new(k, Classloader::ROOT, superclass, interfaces));
-                    self.classes.insert_new(class_name, klass.clone());
-                    Ok(klass)
+            Some(klass) => Ok(Arc::clone(&klass)),
+            None => {
+                self.mutex.lock().unwrap();
+                if let Some(loaded) = self.classes.get(&class_name) {
+                    return Ok(loaded.clone());
                 }
-            },
-            Some(ptr) => Ok(ptr.clone()),
+                let class = match self.parse_class(&class_name) {
+                    Some(class) => Arc::new(class),
+                    None => {
+                        return Err(class_name.to_owned());
+                    }
+                };
+                let superclass = if !class.get_super_class().is_empty() {
+                    Some(self.load_class(class.get_super_class(), stack, pc)?)
+                } else {
+                    None
+                };
+                let mut interfaces: Vec<Arc<Klass>> = vec![];
+                for interface in class.get_interfaces() {
+                    interfaces.push(self.load_class(interface, stack, pc)?);
+                }
+                initialize_class(&class, stack, pc);
+                // TODO classloader
+                let klass = Arc::new(Klass::new(class, Classloader::ROOT, superclass, interfaces));
+                self.classes.insert(class_name, klass.clone());
+                Ok(klass)
+            }
         }
     }
 }
 
+fn initialize_class(class: &Arc<Class>, stack: &mut JavaStack, pc: usize) {
+    trace!("initializing class {}", class.get_name());
+    match class.get_method("<clinit>", "()V") {
+        Some(clinit) => {
+            let frame = JavaFrame::new(Arc::as_ptr(&class), Arc::as_ptr(&clinit));
+            stack.invoke(frame, pc);
+        }
+        None => {}
+    }
+}

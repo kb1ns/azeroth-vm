@@ -1,4 +1,7 @@
+#![feature(weak_into_raw)]
+
 use azerothvm::{mem::metaspace::CLASSES, *};
+use std::sync::Arc;
 
 fn main() {
     match std::env::current_dir() {
@@ -71,16 +74,19 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
     mem::metaspace::ClassArena::init(user_paths, system_paths);
     mem::heap::Heap::init(10 * 1024 * 1024, 1024 * 1024, 1024 * 1024);
     // TODO GC thread
-    let entry_class = match find_class!(class_name) {
+    let mut main_thread_stack = mem::stack::JavaStack::new();
+    let entry_class = match class_arena!().load_class(class_name, &mut main_thread_stack, 0) {
         Err(no_class) => panic!(format!("ClassNotFoundException: {}", no_class)),
         Ok(class) => class,
     };
-    let mut main_thread_stack = mem::stack::JavaStack::new();
-    let ref main_method = entry_class
+    let main_method = entry_class
         .bytecode
         .get_method("main", "([Ljava/lang/String;)V")
         .expect("Main method not found");
-    let main_method = mem::stack::JavaFrame::new(entry_class, std::sync::Arc::clone(main_method));
+    let main_method = mem::stack::JavaFrame::new(
+        Arc::as_ptr(&entry_class.bytecode),
+        Arc::as_ptr(&main_method),
+    );
     &mut main_thread_stack.invoke(main_method, 0);
     interpreter::execute(&mut main_thread_stack);
 }

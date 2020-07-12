@@ -1,7 +1,6 @@
 use crate::bytecode::method::Method;
 use crate::interpreter;
 use crate::mem::{klass::*, *};
-use std::sync::Arc;
 
 const DEFAULT_STACK_LEN: usize = 128 * 1024;
 
@@ -21,9 +20,24 @@ impl JavaStack {
 
     pub fn has_next(&self, pc: usize) -> bool {
         match self.frames.last() {
-            Some(ref frame) => pc < frame.method.get_code().expect("Illegal class file").2.len(),
+            Some(ref frame) => {
+                pc < frame
+                    .method()
+                    .get_code()
+                    .expect("Illegal class file")
+                    .2
+                    .len()
+            }
             None => false,
         }
+    }
+
+    pub fn method(&self) -> &Method {
+        unsafe { &*self.frames.last().expect("").method }
+    }
+
+    pub fn class(&self) -> &Class {
+        unsafe { &*self.frames.last().expect("").class }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -32,7 +46,7 @@ impl JavaStack {
 
     pub fn invoke(&mut self, mut frame: JavaFrame, pc: usize) -> usize {
         if !self.is_empty() {
-            let (_, descriptor, access_flag) = &frame.method.get_name_and_descriptor();
+            let (_, descriptor, access_flag) = &frame.method().get_name_and_descriptor();
             let (params, _) = interpreter::resolve_method_descriptor(descriptor);
             let mut slots: usize = params
                 .into_iter()
@@ -41,10 +55,10 @@ impl JavaStack {
                     _ => 1,
                 })
                 .sum();
-            if !frame.method.is_static() {
+            if !frame.method().is_static() {
                 slots = slots + 1;
             }
-            if frame.method.is_native() {
+            if frame.method().is_native() {
                 // TODO native invokcation not implemented yet, return the pc directly
                 return pc;
             }
@@ -63,7 +77,7 @@ impl JavaStack {
     pub fn backtrack(&mut self) -> usize {
         let frame = self.frames.pop().expect("Illegal operands stack: ");
         if !self.is_empty() {
-            let (_, descriptor, _) = &frame.method.get_name_and_descriptor();
+            let (_, descriptor, _) = &frame.method().get_name_and_descriptor();
             let (_, ret) = interpreter::resolve_method_descriptor(descriptor);
             let slots: usize = match ret.as_ref() {
                 "D" | "J" => 2,
@@ -229,25 +243,22 @@ impl JavaStack {
             target.copy_from(current.ptr, len);
         }
     }
-
-    pub fn current_class(&self) -> Arc<Klass> {
-        self.frames.last().expect("Illegal stack").klass.clone()
-    }
 }
 pub struct JavaFrame {
     pub locals: Vec<u8>,
     pub operands: Vec<u8>,
     pub ptr: *mut u8,
-    pub klass: Arc<Klass>,
-    pub method: Arc<Method>,
+    pub class: *const Class,
+    pub method: *const Method,
     pub pc: usize,
 }
 
 impl JavaFrame {
-    pub fn new(klass: Arc<Klass>, method: Arc<Method>) -> JavaFrame {
-        match method.get_code() {
+    pub fn new(class: *const Class, method: *const Method) -> JavaFrame {
+        let method_ref = unsafe { &*method };
+        match method_ref.get_code() {
             None => {
-                if !method.is_native() {
+                if !method_ref.is_native() {
                     panic!("Abstract method or interface not allow here");
                 }
                 // TODO native method
@@ -257,8 +268,8 @@ impl JavaFrame {
                     locals: vec![],
                     operands: operands,
                     ptr: ptr,
-                    klass: klass,
-                    method: Arc::clone(&method),
+                    class: class,
+                    method: method,
                     pc: 0,
                 }
             }
@@ -269,21 +280,29 @@ impl JavaFrame {
                     locals: vec![0u8; PTR_SIZE * locals as usize],
                     operands: operands,
                     ptr: ptr,
-                    klass: klass,
-                    method: Arc::clone(&method),
+                    class: class,
+                    method: method,
                     pc: 0,
                 }
             }
         }
     }
 
+    pub fn method(&self) -> &Method {
+        unsafe { &*self.method }
+    }
+
+    pub fn class(&self) -> &Class {
+        unsafe { &*self.class }
+    }
+
     pub fn code_at(&self, pc: usize) -> u8 {
-        self.method.get_code().expect("").2[pc]
+        self.method().get_code().expect("").2[pc]
     }
 
     pub fn dump(&self, pc: usize) {
-        let (name, descriptor, _) = self.method.get_name_and_descriptor();
-        println!("current class: {:?}", self.klass.bytecode.get_name());
+        let (name, descriptor, _) = self.method().get_name_and_descriptor();
+        println!("current class: {:?}", self.class().get_name());
         println!("current method: {:?} {:?}", name, descriptor);
         println!("locals: {:02x?}", self.locals);
         println!("stacks: {:02x?}", self.operands);
@@ -291,9 +310,10 @@ impl JavaFrame {
         println!("ptr: {:x?}", self.ptr);
         println!("pc: {:?}", pc);
         println!(
-            "instructions: {:02x?}\n",
-            self.method.get_code().expect("").2
+            "instructions: {:02x?}",
+            self.method().get_code().expect("").2
         );
+        println!();
     }
 }
 
@@ -304,13 +324,14 @@ mod test {
     pub fn test_stack() {
         let java_lang_object = "yv66vgAAADQATgcAMQoAAQAyCgARADMKADQANQoAAQA2CAA3CgARADgKADkAOgoAAQA7BwA8CAA9CgAKAD4DAA9CPwgAPwoAEQBACgARAEEHAEIBAAY8aW5pdD4BAAMoKVYBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQAPcmVnaXN0ZXJOYXRpdmVzAQAIZ2V0Q2xhc3MBABMoKUxqYXZhL2xhbmcvQ2xhc3M7AQAJU2lnbmF0dXJlAQAWKClMamF2YS9sYW5nL0NsYXNzPCo+OwEACGhhc2hDb2RlAQADKClJAQAGZXF1YWxzAQAVKExqYXZhL2xhbmcvT2JqZWN0OylaAQANU3RhY2tNYXBUYWJsZQEABWNsb25lAQAUKClMamF2YS9sYW5nL09iamVjdDsBAApFeGNlcHRpb25zBwBDAQAIdG9TdHJpbmcBABQoKUxqYXZhL2xhbmcvU3RyaW5nOwEABm5vdGlmeQEACW5vdGlmeUFsbAEABHdhaXQBAAQoSilWBwBEAQAFKEpJKVYBAAhmaW5hbGl6ZQcARQEACDxjbGluaXQ+AQAKU291cmNlRmlsZQEAC09iamVjdC5qYXZhAQAXamF2YS9sYW5nL1N0cmluZ0J1aWxkZXIMABIAEwwAFwAYBwBGDABHACUMAEgASQEAAUAMABsAHAcASgwASwBMDAAkACUBACJqYXZhL2xhbmcvSWxsZWdhbEFyZ3VtZW50RXhjZXB0aW9uAQAZdGltZW91dCB2YWx1ZSBpcyBuZWdhdGl2ZQwAEgBNAQAlbmFub3NlY29uZCB0aW1lb3V0IHZhbHVlIG91dCBvZiByYW5nZQwAKAApDAAWABMBABBqYXZhL2xhbmcvT2JqZWN0AQAkamF2YS9sYW5nL0Nsb25lTm90U3VwcG9ydGVkRXhjZXB0aW9uAQAeamF2YS9sYW5nL0ludGVycnVwdGVkRXhjZXB0aW9uAQATamF2YS9sYW5nL1Rocm93YWJsZQEAD2phdmEvbGFuZy9DbGFzcwEAB2dldE5hbWUBAAZhcHBlbmQBAC0oTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL2xhbmcvU3RyaW5nQnVpbGRlcjsBABFqYXZhL2xhbmcvSW50ZWdlcgEAC3RvSGV4U3RyaW5nAQAVKEkpTGphdmEvbGFuZy9TdHJpbmc7AQAVKExqYXZhL2xhbmcvU3RyaW5nOylWACEAEQAAAAAAAAAOAAEAEgATAAEAFAAAABkAAAABAAAAAbEAAAABABUAAAAGAAEAAAAlAQoAFgATAAABEQAXABgAAQAZAAAAAgAaAQEAGwAcAAAAAQAdAB4AAQAUAAAALgACAAIAAAALKiumAAcEpwAEA6wAAAACABUAAAAGAAEAAACVAB8AAAAFAAIJQAEBBAAgACEAAQAiAAAABAABACMAAQAkACUAAQAUAAAAPAACAAEAAAAkuwABWbcAAiq2AAO2AAS2AAUSBrYABSq2AAe4AAi2AAW2AAmwAAAAAQAVAAAABgABAAAA7AERACYAEwAAAREAJwATAAABEQAoACkAAQAiAAAABAABACoAEQAoACsAAgAUAAAAcgAEAAQAAAAyHwmUnAANuwAKWRILtwAMvx2bAAkdEg2kAA27AApZEg63AAy/HZ4ABx8KYUAqH7YAD7EAAAACABUAAAAiAAgAAAG/AAYBwAAQAcMAGgHEACQByAAoAckALAHMADEBzQAfAAAABgAEEAkJBwAiAAAABAABACoAEQAoABMAAgAUAAAAIgADAAEAAAAGKgm2AA+xAAAAAQAVAAAACgACAAAB9gAFAfcAIgAAAAQAAQAqAAQALAATAAIAFAAAABkAAAABAAAAAbEAAAABABUAAAAGAAEAAAIrACIAAAAEAAEALQAIAC4AEwABABQAAAAgAAAAAAAAAAS4ABCxAAAAAQAVAAAACgACAAAAKQADACoAAQAvAAAAAgAw";
         let class_vec = base64::decode(java_lang_object).unwrap();
-        let bytecode = super::Class::from_vec(class_vec);
-        let klass = super::Klass::new(bytecode, super::metaspace::Classloader::ROOT, None, vec![]);
-        let klass = super::Arc::new(klass);
-        let method = klass
-            .bytecode
-            .get_method("toString", "()Ljava/lang/String;")
-            .unwrap();
+        let class = std::boxed::Box::new(super::Class::from_vec(class_vec));
+        let method = std::boxed::Box::new(
+            class
+                .get_method("toString", "()Ljava/lang/String;")
+                .unwrap(),
+        );
+        let class = std::boxed::Box::into_raw(class);
+        let method = std::sync::Arc::as_ptr(&method);
         let locals = vec![
             0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8, 0xau8, 0xbu8, 0xcu8, 0xdu8, 0xeu8,
             0xfu8,
@@ -321,7 +342,7 @@ mod test {
             locals: locals,
             operands: operands,
             ptr: ptr,
-            klass: klass,
+            class: class,
             method: method,
             pc: 0,
         };

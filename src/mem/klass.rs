@@ -3,16 +3,19 @@ use crate::bytecode::{class::Class, method::Method};
 use crate::mem::{metaspace::*, Ref, PTR_SIZE};
 use std::collections::HashMap;
 use std::mem::{size_of, transmute};
-use std::sync::{atomic::AtomicBool, Arc, Mutex};
+use std::sync::{atomic::AtomicBool, Arc, Mutex, Weak};
+
+pub type MethodRef = (*const Class, *const Method);
 
 pub struct Klass {
-    pub bytecode: Class,
+    pub bytecode: Arc<Class>,
     pub classloader: Classloader,
-    pub vtable: HashMap<RefKey, Arc<Method>>,
-    pub itable: HashMap<RefKey, Arc<Method>>,
+    pub vtable: HashMap<RefKey, MethodRef>,
+    pub itable: HashMap<RefKey, MethodRef>,
     pub layout: HashMap<RefKey, (usize, usize)>,
     pub len: usize,
     pub superclass: Option<Arc<Klass>>,
+    pub superinterfaces: Vec<Arc<Klass>>,
     pub initialized: AtomicBool,
     pub mutex: Mutex<u8>,
 }
@@ -28,13 +31,10 @@ pub const OBJ_HEADER_LEN: usize = size_of::<ObjectHeader>();
 pub type ObjectHeaderRaw = [u8; OBJ_HEADER_LEN];
 
 impl ObjectHeader {
-    pub fn new(klass: Arc<Klass>) -> ObjectHeader {
-        // The Arc counts are not affected.
-        // The pointer is valid as long as the Arc has strong counts.
-        // In another word, it is valid before the Klass unload.
+    pub fn new(klass: *const Klass) -> ObjectHeader {
         ObjectHeader {
             mark: 0,
-            klass: Arc::into_raw(klass),
+            klass: klass,
         }
     }
 
@@ -54,115 +54,92 @@ impl ObjectHeader {
 
 impl Klass {
     pub fn new(
-        bytecode: Class,
+        bytecode: Arc<Class>,
         classloader: Classloader,
         superclass: Option<Arc<Klass>>,
         interfaces: Vec<Arc<Klass>>,
-    ) -> Klass {
-        let vtable = Klass::build_vtable(&bytecode, &superclass);
-        let itable = Klass::build_itable(&bytecode, &superclass, &interfaces);
-        let (layout, len) = Klass::build_layout(&bytecode, &superclass);
-        Klass {
+    ) -> Self {
+        let mut klass = Klass {
             bytecode: bytecode,
             classloader: classloader,
-            vtable: vtable,
-            itable: itable,
-            layout: layout,
-            len: len,
+            vtable: HashMap::new(),
+            itable: HashMap::new(),
+            layout: HashMap::new(),
+            len: 0,
             superclass: superclass,
+            superinterfaces: interfaces,
             initialized: AtomicBool::new(false),
             mutex: Mutex::<u8>::new(0),
-        }
+        };
+        &klass.build_vtable();
+        &klass.build_itable();
+        &klass.build_layout();
+        klass
     }
 
-    pub fn get_method_in_vtable(&self, name: &str, desc: &str) -> Option<Arc<Method>> {
-        if let Some(ref m) = self.vtable.get(&("", name, desc)) {
-            Some(Arc::clone(m))
-        } else {
-            None
-        }
+    pub fn get_method_in_vtable(&self, name: &str, desc: &str) -> Option<&MethodRef> {
+        self.vtable.get(&("", name, desc))
     }
 
-    pub fn get_method_in_itable(&self, ifs: &str, name: &str, desc: &str) -> Option<Arc<Method>> {
-        if let Some(ref m) = self.itable.get(&(ifs, name, desc)) {
-            Some(Arc::clone(m))
-        } else {
-            None
-        }
+    pub fn get_method_in_itable(&self, ifs: &str, name: &str, desc: &str) -> Option<&MethodRef> {
+        self.itable.get(&(ifs, name, desc))
     }
 
-    fn build_vtable(
-        current: &Class,
-        superclass: &Option<Arc<Klass>>,
-    ) -> HashMap<RefKey, Arc<Method>> {
-        let mut vtable = HashMap::<RefKey, Arc<Method>>::new();
-        match superclass {
+    fn build_vtable(&mut self) {
+        match &self.superclass {
             Some(klass) => {
                 for (k, v) in &klass.vtable {
-                    vtable.insert(k.clone(), Arc::clone(&v));
+                    self.vtable.insert(k.clone(), v.clone());
                 }
             }
             None => {}
         }
-        for m in &current.methods {
+        for m in &self.bytecode.methods {
             if (m.is_public() || m.is_protected())
                 && !m.is_final()
                 && !m.is_static()
                 && m.name != "<init>"
             {
-                vtable.insert(
+                self.vtable.insert(
                     RefKey::new("".to_string(), m.name.clone(), m.descriptor.clone()),
-                    Arc::clone(&m),
+                    (Arc::as_ptr(&self.bytecode), Arc::as_ptr(m)),
                 );
             }
         }
-        vtable
     }
 
-    fn build_itable(
-        current: &Class,
-        superclass: &Option<Arc<Klass>>,
-        interfaces: &Vec<Arc<Klass>>,
-    ) -> HashMap<RefKey, Arc<Method>> {
-        let mut itable = HashMap::<RefKey, Arc<Method>>::new();
-        match superclass {
+    fn build_itable(&mut self) {
+        match &self.superclass {
             Some(klass) => {
                 for (k, v) in &klass.itable {
-                    itable.insert(k.clone(), Arc::clone(&v));
+                    self.itable.insert(k.clone(), v.clone());
                 }
             }
             None => {}
         }
-        for ifs in interfaces {
-            for m in &ifs.bytecode.methods {
-                for implements in &current.methods {
-                    if m.name == implements.name && m.descriptor == implements.descriptor {
-                        itable.insert(
-                            RefKey::new(
-                                ifs.bytecode.get_name().to_string(),
-                                m.name.clone(),
-                                m.descriptor.clone(),
-                            ),
-                            Arc::clone(&m),
-                        );
-                        break;
-                    }
+        let current = unsafe {&*self.bytecode};
+        for ifs in &self.superinterfaces {
+            for m in &current.methods {
+                if let Some(implement) = current.get_method(&m.name, &m.descriptor) {
+                    self.itable.insert(
+                        RefKey::new(
+                            ifs.bytecode.get_name().to_string(),
+                            m.name.clone(),
+                            m.descriptor.clone(),
+                        ),
+                        (Arc::as_ptr(&self.bytecode), Arc::as_ptr(&implement)),
+                    );
                 }
             }
         }
-        itable
     }
 
-    fn build_layout(
-        current: &Class,
-        superclass: &Option<Arc<Klass>>,
-    ) -> (HashMap<RefKey, (usize, usize)>, usize) {
-        let mut layout = HashMap::<RefKey, (usize, usize)>::new();
-        let (len, size) = match superclass {
+    fn build_layout(&mut self) {
+        let (len, size) = match &self.superclass {
             Some(klass) => {
                 let mut max = 0usize;
                 for (k, v) in &klass.layout {
-                    layout.insert(k.clone(), (v.0, v.1));
+                    self.layout.insert(k.clone(), (v.0, v.1));
                     max = std::cmp::max(max, v.0 + v.1);
                 }
                 (klass.len, max)
@@ -170,11 +147,12 @@ impl Klass {
             None => (0usize, 0usize),
         };
         let mut len = std::cmp::min(len, size);
+        let current = unsafe {&*self.bytecode};
         for f in &current.fields {
             if f.memory_size() > len % PTR_SIZE && len % PTR_SIZE != 0 {
                 len = len + PTR_SIZE - len % PTR_SIZE;
             }
-            layout.insert(
+            self.layout.insert(
                 RefKey::new(
                     current.get_name().to_string(),
                     f.name.clone(),
@@ -187,7 +165,7 @@ impl Klass {
         if len % PTR_SIZE != 0 {
             len = len + PTR_SIZE - len % PTR_SIZE;
         }
-        (layout, len)
+        self.len = len;
     }
 }
 
@@ -214,7 +192,7 @@ pub mod test {
     pub fn test_vtable() {
         let bytecode = parse_class(JAVA_LANG_OBJECT);
         let java_lang_object_klass = super::Klass::new(
-            bytecode,
+            Arc::new(bytecode),
             crate::mem::metaspace::Classloader::ROOT,
             None,
             vec![],
@@ -223,7 +201,7 @@ pub mod test {
         assert_eq!(5, java_lang_object_klass.vtable.len());
         let bytecode = parse_class(DEFAULT_SIMPLE);
         let default_simple_klass = super::Klass::new(
-            bytecode,
+            Arc::new(bytecode),
             crate::mem::metaspace::Classloader::ROOT,
             Some(java_lang_object_klass.clone()),
             vec![],
@@ -237,10 +215,11 @@ pub mod test {
             .vtable
             .get(&("", "toString", "()Ljava/lang/String;"))
             .unwrap();
-        assert_eq!(true, Arc::ptr_eq(to_string_method0, to_string_method1));
+        assert_eq!(true, std::ptr::eq((*to_string_method0).0, (*to_string_method1).0));
+        assert_eq!(true, std::ptr::eq((*to_string_method0).1, (*to_string_method1).1));
         let bytecode = parse_class(DEFAULT_TEST);
         let default_test_klass = super::Klass::new(
-            bytecode,
+            Arc::new(bytecode),
             crate::mem::metaspace::Classloader::ROOT,
             Some(java_lang_object_klass.clone()),
             vec![],
@@ -250,7 +229,8 @@ pub mod test {
             .vtable
             .get(&("", "toString", "()Ljava/lang/String;"))
             .unwrap();
-        assert_eq!(false, Arc::ptr_eq(to_string_method0, to_string_method2));
+        assert_eq!(false, std::ptr::eq((*to_string_method0).0, (*to_string_method2).0));
+        assert_eq!(false, std::ptr::eq((*to_string_method0).1, (*to_string_method2).1));
     }
 
     #[test]
@@ -260,7 +240,7 @@ pub mod test {
     pub fn test_layout() {
         let java_lang_object = parse_class(JAVA_LANG_OBJECT);
         let java_lang_object_klass = super::Klass::new(
-            java_lang_object,
+            Arc::new(java_lang_object),
             crate::mem::metaspace::Classloader::ROOT,
             None,
             vec![],
@@ -269,7 +249,7 @@ pub mod test {
         let java_lang_object_klass = Arc::new(java_lang_object_klass);
         let default_test = parse_class(DEFAULT_TEST);
         let default_test_klass = super::Klass::new(
-            default_test,
+            Arc::new(default_test),
             crate::mem::metaspace::Classloader::ROOT,
             Some(java_lang_object_klass.clone()),
             vec![],
@@ -278,7 +258,7 @@ pub mod test {
         assert_eq!(3, default_test_klass.layout.len());
         let default_extends_test = parse_class(DEFAULT_EXTENDS_TEST);
         let default_extends_test_klass = super::Klass::new(
-            default_extends_test,
+            Arc::new(default_extends_test),
             crate::mem::metaspace::Classloader::ROOT,
             Some(Arc::new(default_test_klass)),
             vec![],
