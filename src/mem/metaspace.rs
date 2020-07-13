@@ -1,4 +1,5 @@
 use crate::mem::{klass::Klass, stack::*, *};
+use crate::interpreter::thread::ThreadContext;
 use log::trace;
 use std::sync::{Arc, Mutex};
 
@@ -63,19 +64,18 @@ impl ClassArena {
     pub fn load_class(
         &self,
         class_name: &str,
-        stack: &mut JavaStack,
-        pc: usize,
-    ) -> Result<Arc<Klass>, String> {
+        context: &mut ThreadContext,
+    ) -> Result<(Arc<Klass>, bool), String> {
         let class_name = Regex::new(r"\.")
             .unwrap()
             .replace_all(class_name, "/")
             .into_owned();
         match self.classes.get(&class_name) {
-            Some(klass) => Ok(Arc::clone(&klass)),
+            Some(klass) => Ok((Arc::clone(&klass), true)),
             None => {
-                self.mutex.lock().unwrap();
+                let _ = self.mutex.lock().unwrap();
                 if let Some(loaded) = self.classes.get(&class_name) {
-                    return Ok(loaded.clone());
+                    return Ok((loaded.clone(), true));
                 }
                 let class = match self.parse_class(&class_name) {
                     Some(class) => Arc::new(class),
@@ -84,19 +84,19 @@ impl ClassArena {
                     }
                 };
                 let superclass = if !class.get_super_class().is_empty() {
-                    Some(self.load_class(class.get_super_class(), stack, pc)?)
+                    Some(self.load_class(class.get_super_class(), context)?.0)
                 } else {
                     None
                 };
                 let mut interfaces: Vec<Arc<Klass>> = vec![];
                 for interface in class.get_interfaces() {
-                    interfaces.push(self.load_class(interface, stack, pc)?);
+                    interfaces.push(self.load_class(interface, context)?.0);
                 }
-                initialize_class(&class, stack, pc);
+                initialize_class(&class, &mut context.stack, context.pc);
                 // TODO classloader
                 let klass = Arc::new(Klass::new(class, Classloader::ROOT, superclass, interfaces));
                 self.classes.insert(class_name, klass.clone());
-                Ok(klass)
+                Ok((klass, false))
             }
         }
     }

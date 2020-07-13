@@ -1,6 +1,7 @@
 use crate::bytecode::method::Method;
 use crate::interpreter;
-use crate::mem::{klass::*, *};
+use crate::interpreter::thread::ThreadContext;
+use crate::mem::{klass::*, metaspace::*, *};
 
 const DEFAULT_STACK_LEN: usize = 128 * 1024;
 
@@ -46,7 +47,7 @@ impl JavaStack {
 
     pub fn invoke(&mut self, mut frame: JavaFrame, pc: usize) -> usize {
         if !self.is_empty() {
-            let (_, descriptor, access_flag) = &frame.method().get_name_and_descriptor();
+            let (_, descriptor, _) = &frame.method().get_name_and_descriptor();
             let (params, _) = interpreter::resolve_method_descriptor(descriptor);
             let mut slots: usize = params
                 .into_iter()

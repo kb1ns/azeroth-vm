@@ -1,6 +1,6 @@
 #![feature(weak_into_raw)]
 
-use azerothvm::{mem::metaspace::CLASSES, *};
+use azerothvm::{interpreter::thread::ThreadContext, mem::metaspace::CLASSES, mem::*, *};
 use std::sync::Arc;
 
 fn main() {
@@ -74,11 +74,15 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
     mem::metaspace::ClassArena::init(user_paths, system_paths);
     mem::heap::Heap::init(10 * 1024 * 1024, 1024 * 1024, 1024 * 1024);
     // TODO GC thread
-    let mut main_thread_stack = mem::stack::JavaStack::new();
-    let entry_class = match class_arena!().load_class(class_name, &mut main_thread_stack, 0) {
-        Err(no_class) => panic!(format!("ClassNotFoundException: {}", no_class)),
-        Ok(class) => class,
+    let mut main_thread_context = ThreadContext {
+        pc: 0,
+        stack: mem::stack::JavaStack::new(),
     };
+    let entry_class = match class_arena!().load_class(class_name, &mut main_thread_context) {
+        Err(no_class) => panic!(format!("ClassNotFoundException: {}", no_class)),
+        Ok((class, _)) => class,
+    };
+    interpreter::execute(&mut main_thread_context);
     let main_method = entry_class
         .bytecode
         .get_method("main", "([Ljava/lang/String;)V")
@@ -87,6 +91,6 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
         Arc::as_ptr(&entry_class.bytecode),
         Arc::as_ptr(&main_method),
     );
-    &mut main_thread_stack.invoke(main_method, 0);
-    interpreter::execute(&mut main_thread_stack);
+    main_thread_context.stack.invoke(main_method, 0);
+    interpreter::execute(&mut main_thread_context);
 }

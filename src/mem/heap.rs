@@ -79,9 +79,11 @@ pub static mut HEAP: Option<Heap> = None;
 #[macro_export]
 macro_rules! jvm_heap {
     () => {
-        match heap::HEAP {
-            Some(ref heap) => heap,
-            None => panic!("Heap not initialized"),
+        unsafe {
+            match heap::HEAP {
+                Some(ref heap) => heap,
+                None => panic!("Heap not initialized"),
+            }
         }
     };
 }
