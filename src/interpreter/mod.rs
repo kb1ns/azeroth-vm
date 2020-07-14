@@ -1,8 +1,8 @@
 pub mod thread;
 
 use crate::bytecode::{atom::*, constant_pool::ConstantItem, *};
-use crate::mem::{heap::*, klass::*, metaspace::*, stack::*, *};
-use std::sync::Arc;
+use crate::mem::{klass::*, metaspace::*, stack::*, *};
+use std::{mem::transmute, sync::Arc};
 use thread::ThreadContext;
 
 use log::trace;
@@ -420,7 +420,7 @@ pub fn execute(context: &mut ThreadContext) {
                 let heap_ptr = jvm_heap!().base;
                 let klass = unsafe {
                     let obj_header = ObjectHeader::from_vm_raw(heap_ptr.add(addr as usize));
-                    Arc::from_raw(obj_header.klass)
+                    obj_header.klass.as_ref().expect("klass_pointer_null")
                 };
                 if let Some(method_ref) = klass.get_method_in_vtable(&m, &t) {
                     let new_frame = JavaFrame::new((*method_ref).0, (*method_ref).1);
@@ -503,7 +503,7 @@ pub fn execute(context: &mut ThreadContext) {
                 let heap_ptr = jvm_heap!().base;
                 let klass = unsafe {
                     let obj_header = ObjectHeader::from_vm_raw(heap_ptr.add(addr as usize));
-                    Arc::from_raw(obj_header.klass)
+                    obj_header.klass.as_ref().expect("klass_pointer_null")
                 };
                 if let Some(method) = klass.bytecode.get_method(m, t) {
                     let new_frame =

@@ -23,7 +23,7 @@ public class Sum implements A {
     public static void main(String[] args) {
             Sum s = new Sum();
             s.incr();
-            //s.decr();
+            s.decr();
             A a = new SumP();
             a.decr();
             HelloWorld.say(1, sum);
