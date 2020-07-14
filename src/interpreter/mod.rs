@@ -20,7 +20,11 @@ pub struct JavaError {
     pub throwable: String,
 }
 
-pub fn execute_frame(context: &mut ThreadContext) {}
+macro_rules! math {
+    ($t: tt, $op: tt) => {
+        |a, b| ($t::from_le_bytes(a) $op $t::from_le_bytes(b)).to_le_bytes()
+    }
+}
 
 pub fn execute(context: &mut ThreadContext) {
     if context.stack.is_empty() {
@@ -86,7 +90,6 @@ pub fn execute(context: &mut ThreadContext) {
             }
             // ldc
             0x12 => {
-                let class = context.stack.class();
                 let v = match context
                     .stack
                     .class()
@@ -223,38 +226,28 @@ pub fn execute(context: &mut ThreadContext) {
                 }
                 context.pc = context.pc + 1;
             }
-            // iadd
-            0x60 => {
-                context
-                    .stack
-                    .bi_op(|a, b| (i32::from_le_bytes(a) + i32::from_le_bytes(b)).to_le_bytes());
-                context.pc = context.pc + 1;
-            }
-            0x64 => {
-                context
-                    .stack
-                    .bi_op(|a, b| (i32::from_le_bytes(a) + i32::from_le_bytes(b)).to_le_bytes());
-                context.pc = context.pc + 1;
-            }
-            // lsub
-            0x65 => {
-                context
-                    .stack
-                    .bi_op_w(|a, b| (i64::from_le_bytes(a) + i64::from_le_bytes(b)).to_le_bytes());
-                context.pc = context.pc + 1;
-            }
-            // fmul
-            0x6a => {
-                context
-                    .stack
-                    .bi_op(|a, b| (f32::from_le_bytes(a) * f32::from_le_bytes(b)).to_le_bytes());
-                context.pc = context.pc + 1;
-            }
-            // ddiv
-            0x6f => {
-                context
-                    .stack
-                    .bi_op_w(|a, b| (f64::from_le_bytes(a) / f64::from_le_bytes(b)).to_le_bytes());
+            //iadd/ladd/fadd/dadd +-*/
+            0x60..=0x6f => {
+                let opr = context.stack.code_at(context.pc);
+                match opr {
+                    0x60 => context.stack.bi_op(math!(i32, +)),
+                    0x61 => context.stack.bi_op_w(math!(i64, +)),
+                    0x62 => context.stack.bi_op(math!(f32, +)),
+                    0x63 => context.stack.bi_op_w(math!(f64, +)),
+                    0x64 => context.stack.bi_op(math!(i32, -)),
+                    0x65 => context.stack.bi_op_w(math!(i64, -)),
+                    0x66 => context.stack.bi_op(math!(f32, -)),
+                    0x67 => context.stack.bi_op_w(math!(f64, -)),
+                    0x68 => context.stack.bi_op(math!(i32, *)),
+                    0x69 => context.stack.bi_op_w(math!(i64, *)),
+                    0x6a => context.stack.bi_op(math!(f32, *)),
+                    0x6b => context.stack.bi_op_w(math!(f64, *)),
+                    0x6c => context.stack.bi_op(math!(i32, /)),
+                    0x6d => context.stack.bi_op_w(math!(i64, /)),
+                    0x6e => context.stack.bi_op(math!(f32, /)),
+                    0x6f => context.stack.bi_op_w(math!(f64, /)),
+                    _ => unreachable!(),
+                }
                 context.pc = context.pc + 1;
             }
             // iinc
