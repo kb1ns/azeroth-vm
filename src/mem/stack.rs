@@ -1,13 +1,13 @@
 use crate::bytecode::method::Method;
 use crate::interpreter;
 use crate::interpreter::thread::ThreadContext;
-use crate::mem::{klass::*, metaspace::*, *};
+use crate::mem::{klass::*, *};
 
 const DEFAULT_STACK_LEN: usize = 128 * 1024;
 
 pub struct JavaStack {
-    pub frames: Vec<JavaFrame>,
-    pub max_stack_size: usize,
+    frames: Vec<JavaFrame>,
+    max_stack_size: usize,
 }
 
 impl JavaStack {
@@ -34,11 +34,27 @@ impl JavaStack {
     }
 
     pub fn method(&self) -> &Method {
-        unsafe { &*self.frames.last().expect("").method }
+        unsafe { &*self.frame().method }
     }
 
     pub fn class(&self) -> &Class {
-        unsafe { &*self.frames.last().expect("").class }
+        unsafe { &*self.frame().class }
+    }
+
+    pub fn method_ptr(&self) -> *const Method {
+        self.frame().method
+    }
+
+    pub fn class_ptr(&self) -> *const Class {
+        self.frame().class
+    }
+
+    pub fn frame(&self) -> &JavaFrame {
+        self.frames.last().expect("current_frame_empty")
+    }
+
+    pub fn mut_frame(&mut self) -> &mut JavaFrame {
+        self.frames.last_mut().expect("current_frame_empty")
     }
 
     pub fn is_empty(&self) -> bool {
@@ -63,7 +79,7 @@ impl JavaStack {
                 // TODO native invokcation not implemented yet, return the pc directly
                 return pc;
             }
-            let current = self.frames.last_mut().expect("Illegal stack");
+            let current = self.mut_frame();
             unsafe {
                 let params = frame.locals.as_mut_ptr();
                 current.ptr = current.ptr.sub(slots * PTR_SIZE);
@@ -85,7 +101,7 @@ impl JavaStack {
                 "V" => 0,
                 _ => 1,
             };
-            let current = self.frames.last_mut().expect("");
+            let current = self.mut_frame();
             unsafe {
                 let return_val = frame.ptr.sub(slots * PTR_SIZE);
                 current.ptr.copy_from(return_val, slots * PTR_SIZE);
@@ -96,11 +112,11 @@ impl JavaStack {
     }
 
     pub fn code_at(&self, pc: usize) -> u8 {
-        self.frames.last().expect("Illegal class file").code_at(pc)
+        self.frame().code_at(pc)
     }
 
     pub fn load(&mut self, offset: usize, count: usize) {
-        let current = self.frames.last_mut().expect("Illegal class file");
+        let current = self.mut_frame();
         unsafe {
             current.ptr.copy_from(
                 current.locals[offset * PTR_SIZE..].as_ptr(),
@@ -111,7 +127,7 @@ impl JavaStack {
     }
 
     pub fn store(&mut self, offset: usize, count: usize) {
-        let current = self.frames.last_mut().expect("Illegal class file");
+        let current = self.mut_frame();
         unsafe {
             current.ptr = current.ptr.sub(count * PTR_SIZE);
             current.ptr.copy_to(
@@ -123,30 +139,30 @@ impl JavaStack {
 
     pub fn get(&self, offset: usize) -> Slot {
         let mut data = NULL;
-        let current = self.frames.last().expect("Illegal operands");
+        let current = self.frame();
         &data[..].copy_from_slice(&current.locals[offset * PTR_SIZE..(offset + 1) * PTR_SIZE]);
         data
     }
 
     pub fn get_w(&self, offset: usize) -> WideSlot {
         let mut data = LONG_NULL;
-        let current = self.frames.last().expect("Illegal operands");
+        let current = self.frame();
         &data[..].copy_from_slice(&current.locals[offset * PTR_SIZE..(offset + 2) * PTR_SIZE]);
         data
     }
 
     pub fn set(&mut self, offset: usize, v: Slot) {
-        let frame = self.frames.last_mut().expect("Illegal class file");
+        let frame = self.mut_frame();
         &frame.locals[offset * PTR_SIZE..].copy_from_slice(&v[..]);
     }
 
     pub fn set_w(&mut self, offset: usize, v: WideSlot) {
-        let frame = self.frames.last_mut().expect("Illegal class file");
+        let frame = self.mut_frame();
         &frame.locals[offset * PTR_SIZE..].copy_from_slice(&v[..]);
     }
 
     pub fn push(&mut self, v: &[u8], len: usize) {
-        let current = self.frames.last_mut().expect("Illegal class file");
+        let current = self.mut_frame();
         unsafe {
             current.ptr.copy_from(v.as_ptr(), len);
             current.ptr = current.ptr.add(len);
@@ -155,7 +171,7 @@ impl JavaStack {
 
     pub fn pop(&mut self) -> Slot {
         let mut data = NULL;
-        let current = self.frames.last_mut().expect("Illegal operands");
+        let current = self.mut_frame();
         unsafe {
             current.ptr = current.ptr.sub(PTR_SIZE);
             current.ptr.copy_to(data.as_mut_ptr(), PTR_SIZE);
@@ -165,7 +181,7 @@ impl JavaStack {
 
     pub fn pop_w(&mut self) -> WideSlot {
         let mut data = LONG_NULL;
-        let current = self.frames.last_mut().expect("Illegal operands");
+        let current = self.mut_frame();
         unsafe {
             current.ptr = current.ptr.sub(PTR_SIZE * 2);
             current.ptr.copy_to(data.as_mut_ptr(), PTR_SIZE * 2);
@@ -194,9 +210,7 @@ impl JavaStack {
     pub fn top(&self) -> Slot {
         let mut v = NULL;
         unsafe {
-            self.frames
-                .last()
-                .expect("Illegal operands")
+            self.frame()
                 .ptr
                 .sub(PTR_SIZE)
                 .copy_to(v.as_mut_ptr(), PTR_SIZE);
@@ -207,9 +221,7 @@ impl JavaStack {
     pub fn top_w(&self) -> WideSlot {
         let mut v = LONG_NULL;
         unsafe {
-            self.frames
-                .last()
-                .expect("Illegal operands")
+            self.frame()
                 .ptr
                 .sub(PTR_SIZE)
                 .copy_to(v.as_mut_ptr(), 2 * PTR_SIZE);
@@ -218,7 +230,7 @@ impl JavaStack {
     }
 
     pub fn fetch_heap(&mut self, addr: u32, offset: usize, len: usize) {
-        let current = self.frames.last_mut().expect("Illegal operands");
+        let current = self.mut_frame();
         let heap_ptr = jvm_heap!().base;
         unsafe {
             let target = heap_ptr.add(addr as usize + OBJ_HEADER_LEN + offset);
@@ -232,7 +244,7 @@ impl JavaStack {
     }
 
     pub fn set_heap_aligned(&mut self, addr: u32, offset: usize, len: usize) {
-        let current = self.frames.last_mut().expect("Illegal operands");
+        let current = self.mut_frame();
         let heap_ptr = jvm_heap!().base;
         unsafe {
             let target = heap_ptr.add(addr as usize + OBJ_HEADER_LEN + offset);

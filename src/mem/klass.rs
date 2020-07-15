@@ -3,7 +3,7 @@ use crate::bytecode::{class::Class, method::Method};
 use crate::mem::{metaspace::*, Ref, PTR_SIZE};
 use std::collections::HashMap;
 use std::mem::{size_of, transmute};
-use std::sync::{atomic::AtomicBool, Arc, Mutex, Weak};
+use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
 pub type MethodRef = (*const Class, *const Method);
 
@@ -117,7 +117,7 @@ impl Klass {
             }
             None => {}
         }
-        let current = unsafe {&*self.bytecode};
+        let current = &*self.bytecode;
         for ifs in &self.superinterfaces {
             for m in &current.methods {
                 if let Some(implement) = current.get_method(&m.name, &m.descriptor) {
@@ -147,7 +147,7 @@ impl Klass {
             None => (0usize, 0usize),
         };
         let mut len = std::cmp::min(len, size);
-        let current = unsafe {&*self.bytecode};
+        let current = &*self.bytecode;
         for f in &current.fields {
             if f.memory_size() > len % PTR_SIZE && len % PTR_SIZE != 0 {
                 len = len + PTR_SIZE - len % PTR_SIZE;

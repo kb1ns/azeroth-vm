@@ -2,7 +2,7 @@ pub mod thread;
 
 use crate::bytecode::{atom::*, constant_pool::ConstantItem, *};
 use crate::mem::{klass::*, metaspace::*, stack::*, *};
-use std::{mem::transmute, sync::Arc};
+use std::sync::Arc;
 use thread::ThreadContext;
 
 use log::trace;
@@ -33,7 +33,7 @@ pub fn execute(context: &mut ThreadContext) {
     // let mut context.pc: usize = context.stack.frames.last().expect("Won't happend").context.pc;
     while context.stack.has_next(context.pc) {
         let instruction = {
-            let frame = context.stack.frames.last().expect("Won't happend");
+            let frame = context.stack.frame();
             // TODO if debug
             frame.dump(context.pc);
             context.stack.code_at(context.pc)
@@ -214,11 +214,7 @@ pub fn execute(context: &mut ThreadContext) {
             }
             // dup
             0x59 => {
-                let current = context
-                    .stack
-                    .frames
-                    .last_mut()
-                    .expect("Illegal operands context.stack:");
+                let current = context.stack.mut_frame();
                 unsafe {
                     let dup = current.ptr.sub(PTR_SIZE);
                     current.ptr.copy_from(dup, PTR_SIZE);
@@ -306,17 +302,17 @@ pub fn execute(context: &mut ThreadContext) {
             0xb2 => {
                 let field_idx = (context.stack.code_at(context.pc + 1) as U2) << 8
                     | context.stack.code_at(context.pc + 2) as U2;
-                let class = context.stack.class();
+                let class = unsafe { context.stack.class_ptr().as_ref() }
+                    .expect("stack_class_pointer_null");
                 let (c, (f, t)) = class.constant_pool.get_javaref(field_idx);
-                let (c, f, t) = (c.to_string(), f.to_string(), t.to_string());
                 // TODO load class `c`, push `f` to operands according to the type `t`
                 let (klass, initialized) = class_arena!()
-                    .load_class(&c, context)
+                    .load_class(c, context)
                     .expect("ClassNotFoundException");
                 if !initialized {
                     continue;
                 }
-                if let Some(ref field) = klass.bytecode.get_field(&f, &t) {
+                if let Some(ref field) = klass.bytecode.get_field(f, t) {
                     match &field.value.get() {
                         None => panic!(""),
                         Some(value) => match value {
@@ -361,8 +357,6 @@ pub fn execute(context: &mut ThreadContext) {
             0xb4 => {
                 let field_idx = (context.stack.code_at(context.pc + 1) as U2) << 8
                     | context.stack.code_at(context.pc + 2) as U2;
-                // let frame = context.stack.frames.last().expect("Illegal class file");
-                // let klass = frame.klass.clone();
                 let (c, (f, t)) = context.stack.class().constant_pool.get_javaref(field_idx);
                 let (c, f, t) = (c.to_string(), f.to_string(), t.to_string());
                 // TODO load class `c`, push `f` to operands according to the type `t`
@@ -413,19 +407,19 @@ pub fn execute(context: &mut ThreadContext) {
             0xb6 => {
                 let method_idx = (context.stack.code_at(context.pc + 1) as U2) << 8
                     | context.stack.code_at(context.pc + 2) as U2;
-                let class = context.stack.class();
-                let (c, (m, t)) = class.constant_pool.get_javaref(method_idx);
-                let (c, m, t) = (c.to_string(), m.to_string(), t.to_string());
+                let class = unsafe { context.stack.class_ptr().as_ref() }
+                    .expect("stack_class_pointer_null");
+                let (_, (m, t)) = class.constant_pool.get_javaref(method_idx);
                 let addr = u32::from_le_bytes(context.stack.top());
                 let heap_ptr = jvm_heap!().base;
                 let klass = unsafe {
                     let obj_header = ObjectHeader::from_vm_raw(heap_ptr.add(addr as usize));
-                    obj_header.klass.as_ref().expect("klass_pointer_null")
+                    obj_header.klass.as_ref().expect("obj_klass_pointer_null")
                 };
-                if let Some(method_ref) = klass.get_method_in_vtable(&m, &t) {
+                if let Some(method_ref) = klass.get_method_in_vtable(m, t) {
                     let new_frame = JavaFrame::new((*method_ref).0, (*method_ref).1);
                     context.pc = context.stack.invoke(new_frame, context.pc + 3);
-                } else if let Some(method) = klass.bytecode.get_method(&m, &t) {
+                } else if let Some(method) = klass.bytecode.get_method(m, t) {
                     if !method.is_final() {
                         panic!("ClassVerifyError");
                     }
@@ -440,48 +434,37 @@ pub fn execute(context: &mut ThreadContext) {
             0xb7 => {
                 let method_idx = (context.stack.code_at(context.pc + 1) as U2) << 8
                     | context.stack.code_at(context.pc + 2) as U2;
-                let (c, (m, t)) = context.stack.class().constant_pool.get_javaref(method_idx);
-                let (c, m, t) = (c.to_string(), m.to_string(), t.to_string());
+                let class = unsafe { context.stack.class_ptr().as_ref() }
+                    .expect("stack_klass_pointer_null");
+                let (c, (m, t)) = class.constant_pool.get_javaref(method_idx);
                 // TODO
                 let klass = class_arena!()
-                    .load_class(&c, context)
+                    .load_class(c, context)
                     .expect("ClassNotFoundException")
                     .0;
-                if let Some(method) = klass.bytecode.get_method(&m, &t) {
+                if let Some(method) = klass.bytecode.get_method(m, t) {
                     let new_frame =
                         JavaFrame::new(Arc::as_ptr(&klass.bytecode), Arc::as_ptr(&method));
                     context.pc = context.stack.invoke(new_frame, context.pc + 3);
                 } else {
-                    // let mut current = klass;
-                    // loop {
-                    //     match &current.superclass {
-                    //         Some(superclass) => {
-                    //             if let Some(method) = superclass.bytecode.get_method(m, t) {
-                    //                 let new_frame = JavaFrame::new(current, method);
-                    //                 context.pc = context.stack.invoke(new_frame, context.pc + 3);
-                    //                 break;
-                    //             }
-                    //             current = Arc::clone(superclass);
-                    //         }
-                    //         None => panic!("NoSuchMethodError"),
-                    //     }
-                    // }
+                    // TODO
+                    panic!("NoSuchMethodException");
                 }
             }
             // invokestatic
             0xb8 => {
                 let method_idx = (context.stack.code_at(context.pc + 1) as U2) << 8
                     | context.stack.code_at(context.pc + 2) as U2;
-                let (c, (m, t)) = context.stack.class().constant_pool.get_javaref(method_idx);
-                // TODO
-                let (c, m, t) = (c.to_string(), m.to_string(), t.to_string());
+                let class = unsafe { context.stack.class_ptr().as_ref() }
+                    .expect("stack_klass_pointer_null");
+                let (c, (m, t)) = class.constant_pool.get_javaref(method_idx);
                 let (klass, initialized) = class_arena!()
-                    .load_class(&c, context)
+                    .load_class(c, context)
                     .expect("ClassNotFoundException");
                 if !initialized {
                     continue;
                 }
-                if let Some(method) = klass.bytecode.get_method(&m, &t) {
+                if let Some(method) = klass.bytecode.get_method(m, t) {
                     // TODO
                     if !method.is_static() {
                         panic!("");
