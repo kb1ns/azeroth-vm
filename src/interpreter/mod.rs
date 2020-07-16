@@ -20,9 +20,15 @@ pub struct JavaError {
     pub throwable: String,
 }
 
-macro_rules! math {
+macro_rules! math_bi {
     ($t: tt, $op: tt) => {
         |a, b| ($t::from_le_bytes(a) $op $t::from_le_bytes(b)).to_le_bytes()
+    }
+}
+
+macro_rules! math_un {
+    ($t: tt, $op: tt) => {
+        |a| ($op $t::from_le_bytes(a)).to_le_bytes()
     }
 }
 
@@ -30,7 +36,6 @@ pub fn execute(context: &mut ThreadContext) {
     if context.stack.is_empty() {
         return;
     }
-    // let mut context.pc: usize = context.stack.frames.last().expect("Won't happend").context.pc;
     while context.stack.has_next(context.pc) {
         let instruction = {
             let frame = context.stack.frame();
@@ -158,18 +163,16 @@ pub fn execute(context: &mut ThreadContext) {
                 context.stack.load(opr, 1);
                 context.pc = context.pc + 1;
             }
-            // istore/fstore
+            // istore/fstore/astore
             0x36 | 0x38 | 0x3a => {
-                context
-                    .stack
-                    .store(context.stack.code_at(context.pc + 1) as usize, 1);
+                let opr = context.stack.code_at(context.pc + 1) as usize;
+                context.stack.store(opr, 1);
                 context.pc = context.pc + 2;
             }
             // lstore/dstore
             0x37 | 0x39 => {
-                context
-                    .stack
-                    .store(context.stack.code_at(context.pc + 1) as usize, 2);
+                let opr = context.stack.code_at(context.pc + 1) as usize;
+                context.stack.store(opr, 2);
                 context.pc = context.pc + 2;
             }
             // istore 0 ~ 3
@@ -182,7 +185,7 @@ pub fn execute(context: &mut ThreadContext) {
             0x3f..=0x42 => {
                 let opr = context.stack.code_at(context.pc) as usize - 0x3f;
                 context.stack.store(opr, 2);
-                context.pc = context.pc + 2;
+                context.pc = context.pc + 1;
             }
             // fstore 0 ~ 3
             0x43..=0x46 => {
@@ -194,7 +197,7 @@ pub fn execute(context: &mut ThreadContext) {
             0x47..=0x4a => {
                 let opr = context.stack.code_at(context.pc) as usize - 0x47;
                 context.stack.store(opr, 2);
-                context.pc = context.pc + 2;
+                context.pc = context.pc + 1;
             }
             // astore 0 ~ 3
             0x4b..=0x4e => {
@@ -222,26 +225,38 @@ pub fn execute(context: &mut ThreadContext) {
                 }
                 context.pc = context.pc + 1;
             }
-            //iadd/ladd/fadd/dadd +-*/
-            0x60..=0x6f => {
+            // i/l/f/d +-*/%
+            0x60..=0x7b => {
                 let opr = context.stack.code_at(context.pc);
                 match opr {
-                    0x60 => context.stack.bi_op(math!(i32, +)),
-                    0x61 => context.stack.bi_op_w(math!(i64, +)),
-                    0x62 => context.stack.bi_op(math!(f32, +)),
-                    0x63 => context.stack.bi_op_w(math!(f64, +)),
-                    0x64 => context.stack.bi_op(math!(i32, -)),
-                    0x65 => context.stack.bi_op_w(math!(i64, -)),
-                    0x66 => context.stack.bi_op(math!(f32, -)),
-                    0x67 => context.stack.bi_op_w(math!(f64, -)),
-                    0x68 => context.stack.bi_op(math!(i32, *)),
-                    0x69 => context.stack.bi_op_w(math!(i64, *)),
-                    0x6a => context.stack.bi_op(math!(f32, *)),
-                    0x6b => context.stack.bi_op_w(math!(f64, *)),
-                    0x6c => context.stack.bi_op(math!(i32, /)),
-                    0x6d => context.stack.bi_op_w(math!(i64, /)),
-                    0x6e => context.stack.bi_op(math!(f32, /)),
-                    0x6f => context.stack.bi_op_w(math!(f64, /)),
+                    0x60 => context.stack.bi_op(math_bi!(i32, +)),
+                    0x61 => context.stack.bi_op_w(math_bi!(i64, +)),
+                    0x62 => context.stack.bi_op(math_bi!(f32, +)),
+                    0x63 => context.stack.bi_op_w(math_bi!(f64, +)),
+                    0x64 => context.stack.bi_op(math_bi!(i32, -)),
+                    0x65 => context.stack.bi_op_w(math_bi!(i64, -)),
+                    0x66 => context.stack.bi_op(math_bi!(f32, -)),
+                    0x67 => context.stack.bi_op_w(math_bi!(f64, -)),
+                    0x68 => context.stack.bi_op(math_bi!(i32, *)),
+                    0x69 => context.stack.bi_op_w(math_bi!(i64, *)),
+                    0x6a => context.stack.bi_op(math_bi!(f32, *)),
+                    0x6b => context.stack.bi_op_w(math_bi!(f64, *)),
+                    0x6c => context.stack.bi_op(math_bi!(i32, /)),
+                    0x6d => context.stack.bi_op_w(math_bi!(i64, /)),
+                    0x6e => context.stack.bi_op(math_bi!(f32, /)),
+                    0x6f => context.stack.bi_op_w(math_bi!(f64, /)),
+                    0x70 => context.stack.bi_op(math_bi!(i32, %)),
+                    0x71 => context.stack.bi_op_w(math_bi!(i64, %)),
+                    0x72 => context.stack.bi_op(math_bi!(f32, %)),
+                    0x73 => context.stack.bi_op_w(math_bi!(f64, %)),
+                    0x74 => context.stack.un_op(math_un!(i32, -)),
+                    0x75 => context.stack.un_op_w(math_un!(i64, -)),
+                    0x76 => context.stack.un_op(math_un!(f32, -)),
+                    0x77 => context.stack.un_op_w(math_un!(f64, -)),
+                    0x78 => context.stack.bi_op(math_bi!(i32, <<)),
+                    0x79 => context.stack.bi_op_w(math_bi!(i64, <<)),
+                    0x7a => context.stack.bi_op(math_bi!(i32, >>)),
+                    0x7b => context.stack.bi_op_w(math_bi!(i64, >>)),
                     _ => unreachable!(),
                 }
                 context.pc = context.pc + 1;

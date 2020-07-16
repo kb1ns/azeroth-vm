@@ -207,6 +207,22 @@ impl JavaStack {
         self.push(&f(left, right), 2 * PTR_SIZE);
     }
 
+    pub fn un_op<F>(&mut self, f: F)
+    where
+        F: Fn(Slot) -> Slot,
+    {
+        let opr = self.pop();
+        self.push(&f(opr), PTR_SIZE);
+    }
+
+    pub fn un_op_w<F>(&mut self, f: F)
+    where
+        F: Fn(WideSlot) -> WideSlot,
+    {
+        let opr = self.pop_w();
+        self.push(&f(opr), 2 * PTR_SIZE);
+    }
+
     pub fn top(&self) -> Slot {
         let mut v = NULL;
         unsafe {
