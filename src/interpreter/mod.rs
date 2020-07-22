@@ -224,7 +224,7 @@ pub fn execute(context: &mut ThreadContext) {
                 }
                 context.pc = context.pc + 1;
             }
-            // i/l/f/d +-*/%<<>>
+            // i/l/f/d +-*/%<<>>>>>
             0x60..=0x83 => {
                 let opr = context.stack.code_at(context.pc);
                 match opr {
@@ -284,6 +284,11 @@ pub fn execute(context: &mut ThreadContext) {
                 let new = i32::from_le_bytes(context.stack.get(index)) + cst;
                 context.stack.set(index, new.to_le_bytes());
                 context.pc = context.pc + 3;
+            }
+            // i2l,i2f,i2d,l2i,l2f,l2d,f2i,f2l,f2d,d2i,d2l,d2f,i2b,i2c,i2s
+            0x85..=0x93 => {
+                // TODO
+                context.pc = context.pc + 1;
             }
             // ifeq, ifne, iflt, ifge, ifgt, ifle
             0x99..=0x9e => {
