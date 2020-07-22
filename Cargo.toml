@@ -2,7 +2,7 @@
 name = "azeroth-vm"
 version = "0.1.0"
 edition = "2018"
-authors = ["archerfeel <archerfeel@gmail.com>"]
+authors = ["Zhang Yu <archerfeel@gmail.com>"]
 
 [dependencies]
 regex = "0.2"
@@ -11,7 +11,8 @@ log = "0.4"
 argparse = "0.2.2"
 chashmap = "2.2.0"
 base64 = "0.11.0"
-
+libloading = "0.5"
+azeroth-jni = { package = "azeroth-jni", path = "./jni" }
 
 [lib]
 name = "azerothvm"

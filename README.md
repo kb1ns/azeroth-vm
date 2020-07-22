@@ -2,6 +2,6 @@
 
   
 - `export JAVA_HOME=${...}`
-- `javac java/Sum.java`
+- `javac java_test/Sum.java`
 - `cargo build`
-- `target/debug/java --classpath $(pwd)/java Sum` or `cd java && ../target/debug/java Sum`
+- `target/debug/java --classpath $(pwd)/java Sum`
