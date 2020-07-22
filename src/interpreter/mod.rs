@@ -21,8 +21,8 @@ pub struct JavaError {
 }
 
 macro_rules! math_bi {
-    ($t: tt, $op: tt) => {
-        |a, b| ($t::from_le_bytes(a) $op $t::from_le_bytes(b)).to_le_bytes()
+    ($l: tt, $r: tt, $op: tt) => {
+        |a, b| ($l::from_le_bytes(a) $op $r::from_le_bytes(b)).to_le_bytes()
     }
 }
 
@@ -60,7 +60,6 @@ pub fn execute(context: &mut ThreadContext) {
                 context.pc = context.pc + 1;
             }
             // lconst 0 ~ 1
-            // byteorder: higher first
             0x09..=0x0a => {
                 let opr = context.stack.code_at(context.pc) as i64 - 9;
                 context.stack.push(&opr.to_le_bytes(), 2 * PTR_SIZE);
@@ -225,38 +224,55 @@ pub fn execute(context: &mut ThreadContext) {
                 }
                 context.pc = context.pc + 1;
             }
-            // i/l/f/d +-*/%
-            0x60..=0x7b => {
+            // i/l/f/d +-*/%<<>>
+            0x60..=0x83 => {
                 let opr = context.stack.code_at(context.pc);
                 match opr {
-                    0x60 => context.stack.bi_op(math_bi!(i32, +)),
-                    0x61 => context.stack.bi_op_w(math_bi!(i64, +)),
-                    0x62 => context.stack.bi_op(math_bi!(f32, +)),
-                    0x63 => context.stack.bi_op_w(math_bi!(f64, +)),
-                    0x64 => context.stack.bi_op(math_bi!(i32, -)),
-                    0x65 => context.stack.bi_op_w(math_bi!(i64, -)),
-                    0x66 => context.stack.bi_op(math_bi!(f32, -)),
-                    0x67 => context.stack.bi_op_w(math_bi!(f64, -)),
-                    0x68 => context.stack.bi_op(math_bi!(i32, *)),
-                    0x69 => context.stack.bi_op_w(math_bi!(i64, *)),
-                    0x6a => context.stack.bi_op(math_bi!(f32, *)),
-                    0x6b => context.stack.bi_op_w(math_bi!(f64, *)),
-                    0x6c => context.stack.bi_op(math_bi!(i32, /)),
-                    0x6d => context.stack.bi_op_w(math_bi!(i64, /)),
-                    0x6e => context.stack.bi_op(math_bi!(f32, /)),
-                    0x6f => context.stack.bi_op_w(math_bi!(f64, /)),
-                    0x70 => context.stack.bi_op(math_bi!(i32, %)),
-                    0x71 => context.stack.bi_op_w(math_bi!(i64, %)),
-                    0x72 => context.stack.bi_op(math_bi!(f32, %)),
-                    0x73 => context.stack.bi_op_w(math_bi!(f64, %)),
+                    0x60 => context.stack.bi_op(math_bi!(i32, i32, +)),
+                    0x61 => context.stack.bi_op_w(math_bi!(i64, i64, +)),
+                    0x62 => context.stack.bi_op(math_bi!(f32, f32, +)),
+                    0x63 => context.stack.bi_op_w(math_bi!(f64, f64, +)),
+                    0x64 => context.stack.bi_op(math_bi!(i32, i32, -)),
+                    0x65 => context.stack.bi_op_w(math_bi!(i64, i64, -)),
+                    0x66 => context.stack.bi_op(math_bi!(f32, f32, -)),
+                    0x67 => context.stack.bi_op_w(math_bi!(f64, f64, -)),
+                    0x68 => context.stack.bi_op(math_bi!(i32, i32, *)),
+                    0x69 => context.stack.bi_op_w(math_bi!(i64, i64, *)),
+                    0x6a => context.stack.bi_op(math_bi!(f32, f32, *)),
+                    0x6b => context.stack.bi_op_w(math_bi!(f64, f64, *)),
+                    0x6c => context.stack.bi_op(math_bi!(i32, i32, /)),
+                    0x6d => context.stack.bi_op_w(math_bi!(i64, i64, /)),
+                    0x6e => context.stack.bi_op(math_bi!(f32, f32, /)),
+                    0x6f => context.stack.bi_op_w(math_bi!(f64, f64, /)),
+                    0x70 => context.stack.bi_op(math_bi!(i32, i32, %)),
+                    0x71 => context.stack.bi_op_w(math_bi!(i64, i64, %)),
+                    0x72 => context.stack.bi_op(math_bi!(f32, f32, %)),
+                    0x73 => context.stack.bi_op_w(math_bi!(f64, f64, %)),
                     0x74 => context.stack.un_op(math_un!(i32, -)),
                     0x75 => context.stack.un_op_w(math_un!(i64, -)),
                     0x76 => context.stack.un_op(math_un!(f32, -)),
                     0x77 => context.stack.un_op_w(math_un!(f64, -)),
-                    0x78 => context.stack.bi_op(math_bi!(i32, <<)),
-                    0x79 => context.stack.bi_op_w(math_bi!(i64, <<)),
-                    0x7a => context.stack.bi_op(math_bi!(i32, >>)),
-                    0x7b => context.stack.bi_op_w(math_bi!(i64, >>)),
+                    0x78 => context.stack.bi_op(math_bi!(i32, i32, <<)),
+                    0x7a => context.stack.bi_op(math_bi!(u32, u32, >>)),
+                    0x7c => context.stack.bi_op(math_bi!(i32, i32, >>)),
+                    0x79 => {
+                        let s = u32::from_le_bytes(context.stack.pop());
+                        context.stack.un_op_w(|d| (i64::from_le_bytes(d) << s).to_le_bytes());
+                    }
+                    0x7b => {
+                        let s = u32::from_le_bytes(context.stack.pop());
+                        context.stack.un_op_w(|d| (u64::from_le_bytes(d) << s).to_le_bytes());
+                    }
+                    0x7d => {
+                        let s = u32::from_le_bytes(context.stack.pop());
+                        context.stack.un_op_w(|d| (i64::from_le_bytes(d) << s).to_le_bytes());
+                    }
+                    0x7e => context.stack.bi_op(math_bi!(i32, i32, &)),
+                    0x7f => context.stack.bi_op_w(math_bi!(i64, i64, &)),
+                    0x80 => context.stack.bi_op(math_bi!(i32, i32, |)),
+                    0x81 => context.stack.bi_op_w(math_bi!(i64, i64, |)),
+                    0x82 => context.stack.bi_op(math_bi!(i32, i32, ^)),
+                    0x83 => context.stack.bi_op_w(math_bi!(i64, i64, ^)),
                     _ => unreachable!(),
                 }
                 context.pc = context.pc + 1;
@@ -626,4 +642,16 @@ pub fn test_resolve_method() {
     let (params, ret) = resolve_method_descriptor("([Ljava/lang/String;)V");
     assert_eq!(params, vec!["[Ljava/lang/String;"]);
     assert_eq!(ret, "V");
+}
+
+#[test]
+pub fn test_shift() {
+    let u = 1i32;
+    assert_eq!(0, u >> 1);
+    assert_eq!(2, u << 1);
+    let nu = i32::MIN;
+    let sfr = unsafe { std::mem::transmute::<u32, i32>(std::mem::transmute::<i32, u32>(nu) >> 1) };
+    let test: u32 = 0x80000001 >> 1;
+    assert_eq!(test as i32, sfr);
+    assert_eq!(0x80000000, i32::MIN as u32);
 }
