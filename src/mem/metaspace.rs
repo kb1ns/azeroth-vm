@@ -80,6 +80,12 @@ impl ClassArena {
             .unwrap()
             .replace_all(class_name, "/")
             .into_owned();
+        if &class_name[..1] == "[" {
+            let (_, initialized) = self.load_class(&class_name[1..], context)?;
+            let array_klass = Arc::new(Klass::new_phantom_klass(&class_name));
+            self.classes.insert_new(class_name, array_klass.clone());
+            return Ok((array_klass, initialized));
+        }
         match self.classes.get(&class_name) {
             Some(klass) => Ok((Arc::clone(&klass), true)),
             None => {

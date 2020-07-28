@@ -336,8 +336,8 @@ pub fn execute(context: &mut ThreadContext) {
                     as i16;
                 context.pc = (context.pc as isize + offset as isize) as usize;
             }
-            // return
-            0xb1 => {
+            // ireturn/lreturn/freturn/dreturn/areturn/return
+            0xac..=0xb1 => {
                 context.pc = context.stack.backtrack();
             }
             // getstatic
@@ -568,9 +568,31 @@ pub fn execute(context: &mut ThreadContext) {
                 }
                 let obj = jvm_heap!().allocate_object(&klass);
                 let v = obj.to_le_bytes();
-                println!("allocate object, addr: {}", obj);
+                trace!("allocate object, addr: {}", obj);
                 context.stack.push(&v, PTR_SIZE);
                 context.pc = context.pc + 3;
+            }
+            // newarray
+            0xbc => {
+                let atype = match context.stack.code_at(context.pc + 1) {
+                    4 => "[Z",
+                    5 => "[C",
+                    6 => "[F",
+                    7 => "[D",
+                    8 => "[B",
+                    9 => "[S",
+                    10 => "[I",
+                    11 => "[J",
+                    _ => unreachable!(),
+                };
+                let (klass, _) = class_arena!()
+                    .load_class(atype, context)
+                    .expect("PRIMITIVE_TYPES_ARRAY");
+                let size = u32::from_le_bytes(context.stack.pop());
+                let array = jvm_heap!().allocate_array(&klass, size);
+                let v = array.to_le_bytes();
+                trace!("allocate array {}, addr:{}, size:{}", atype, array, size);
+                context.pc = context.pc + 2;
             }
             _ => panic!(format!(
                 "Instruction 0x{:2x?} not implemented yet.",

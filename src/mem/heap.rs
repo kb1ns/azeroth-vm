@@ -1,5 +1,5 @@
 use crate::mem::{
-    klass::{Klass, ObjectHeader, OBJ_HEADER_LEN},
+    klass::{Klass, ObjectHeader, OBJ_HEADER_LEN, ArrayHeader, ARRAY_HEADER_LEN},
     *,
 };
 use std::sync::{Arc, RwLock};
@@ -69,9 +69,24 @@ impl Heap {
         }
     }
 
-    // pub fn allocate_array(&self, klass: &Arc<Klass>, size: usize) -> (Ref, u32){
-
-    // }
+    pub fn allocate_array(&self, klass: &Arc<Klass>, size: u32) -> Ref {
+        let array_len = ARRAY_HEADER_LEN + klass.len * size as usize;
+        let mut eden = self.eden.write().unwrap();
+        // ensure enough space to allocate object
+        if eden.offset + array_len as u32 >= eden.limit {
+            // TODO gc
+            panic!("OutOfMemoryError");
+        }
+        let array_header = ArrayHeader::new(Arc::as_ptr(klass), size);
+        unsafe {
+            let eden_ptr = self.base.add(eden.offset as usize);
+            let array_header_ptr = array_header.into_vm_raw().as_ptr();
+            eden_ptr.copy_from(array_header_ptr, ARRAY_HEADER_LEN);
+            let addr = eden.offset;
+            eden.offset = eden.offset + array_len as u32;
+            addr
+        }
+    }
 }
 
 pub static mut HEAP: Option<Heap> = None;

@@ -30,7 +30,7 @@ pub struct ObjectHeader {
 #[derive(Clone)]
 pub struct ArrayHeader {
     pub mark: Ref,
-    pub count: usize,
+    pub size: u32,
     pub klass: *const Klass,
 }
 
@@ -43,7 +43,7 @@ pub type ObjectHeaderRaw = [u8; OBJ_HEADER_LEN];
 pub type ArrayHeaderRaw = [u8; ARRAY_HEADER_LEN];
 
 impl ObjectHeader {
-    pub fn new(klass: *const Klass) -> ObjectHeader {
+    pub fn new(klass: *const Klass) -> Self {
         ObjectHeader {
             mark: 0,
             klass: klass,
@@ -60,6 +60,29 @@ impl ObjectHeader {
         unsafe {
             obj_header_ptr.copy_from(ptr, OBJ_HEADER_LEN);
             transmute::<ObjectHeaderRaw, Self>(obj_header_raw)
+        }
+    }
+}
+
+impl ArrayHeader {
+    pub fn new(klass: *const Klass, size: u32) -> Self {
+        ArrayHeader {
+            mark: 0,
+            size: size,
+            klass: klass,
+        }
+    }
+
+    pub fn into_vm_raw(self) -> ArrayHeaderRaw {
+        unsafe { transmute::<Self, ArrayHeaderRaw>(self) }
+    }
+
+    pub fn from_vm_raw(ptr: *const u8) -> Self {
+        let mut array_header_raw = [0u8; ARRAY_HEADER_LEN];
+        let array_header_ptr = array_header_raw.as_mut_ptr();
+        unsafe {
+            array_header_ptr.copy_from(ptr, ARRAY_HEADER_LEN);
+            transmute::<ArrayHeaderRaw, Self>(array_header_raw)
         }
     }
 }
@@ -99,7 +122,11 @@ impl Klass {
             vtable: HashMap::new(),
             itable: HashMap::new(),
             layout: HashMap::new(),
-            len: 0,
+            len: match name {
+                "I" | "F" | "Z" | "B" | "S" | "C" => PTR_SIZE,
+                "D" | "J" => 2 * PTR_SIZE,
+                _ => PTR_SIZE,
+            },
             superclass: None,
             superinterfaces: vec![],
             initialized: AtomicBool::new(true),
@@ -132,7 +159,10 @@ impl Klass {
             {
                 self.vtable.insert(
                     RefKey::new("".to_string(), m.name.clone(), m.descriptor.clone()),
-                    (Arc::as_ptr(&self.bytecode.as_ref().unwrap()), Arc::as_ptr(m)),
+                    (
+                        Arc::as_ptr(&self.bytecode.as_ref().unwrap()),
+                        Arc::as_ptr(m),
+                    ),
                 );
             }
         }
@@ -152,12 +182,11 @@ impl Klass {
             for m in &current.methods {
                 if let Some(implement) = current.get_method(&m.name, &m.descriptor) {
                     self.itable.insert(
-                        RefKey::new(
-                            ifs.name.clone(),
-                            m.name.clone(),
-                            m.descriptor.clone(),
+                        RefKey::new(ifs.name.clone(), m.name.clone(), m.descriptor.clone()),
+                        (
+                            Arc::as_ptr(&self.bytecode.as_ref().unwrap()),
+                            Arc::as_ptr(&implement),
                         ),
-                        (Arc::as_ptr(&self.bytecode.as_ref().unwrap()), Arc::as_ptr(&implement)),
                     );
                 }
             }
@@ -245,8 +274,14 @@ pub mod test {
             .vtable
             .get(&("", "toString", "()Ljava/lang/String;"))
             .unwrap();
-        assert_eq!(true, std::ptr::eq((*to_string_method0).0, (*to_string_method1).0));
-        assert_eq!(true, std::ptr::eq((*to_string_method0).1, (*to_string_method1).1));
+        assert_eq!(
+            true,
+            std::ptr::eq((*to_string_method0).0, (*to_string_method1).0)
+        );
+        assert_eq!(
+            true,
+            std::ptr::eq((*to_string_method0).1, (*to_string_method1).1)
+        );
         let bytecode = parse_class(DEFAULT_TEST);
         let default_test_klass = super::Klass::new(
             Arc::new(bytecode),
@@ -259,8 +294,14 @@ pub mod test {
             .vtable
             .get(&("", "toString", "()Ljava/lang/String;"))
             .unwrap();
-        assert_eq!(false, std::ptr::eq((*to_string_method0).0, (*to_string_method2).0));
-        assert_eq!(false, std::ptr::eq((*to_string_method0).1, (*to_string_method2).1));
+        assert_eq!(
+            false,
+            std::ptr::eq((*to_string_method0).0, (*to_string_method2).0)
+        );
+        assert_eq!(
+            false,
+            std::ptr::eq((*to_string_method0).1, (*to_string_method2).1)
+        );
     }
 
     #[test]
