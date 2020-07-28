@@ -31,7 +31,7 @@ public class HelloWorld implements A {
         A a = new HelloRust();
         a.decr();
         HelloRust.say(1, sum);
-	    int[] array = new int[10];
+	int[] array = new int[10];
     }
 
     public static class HelloRust extends HelloWorld {
