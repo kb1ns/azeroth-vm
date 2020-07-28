@@ -85,10 +85,12 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
     interpreter::execute(&mut main_thread_context);
     let main_method = entry_class
         .bytecode
+        .as_ref()
+        .unwrap()
         .get_method("main", "([Ljava/lang/String;)V")
         .expect("Main method not found");
     let main_method = mem::stack::JavaFrame::new(
-        Arc::as_ptr(&entry_class.bytecode),
+        Arc::as_ptr(&entry_class.bytecode.as_ref().unwrap()),
         Arc::as_ptr(&main_method),
     );
     main_thread_context.stack.invoke(main_method, 0);

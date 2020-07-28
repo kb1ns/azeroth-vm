@@ -39,12 +39,22 @@ impl ClassArena {
         for path in app_paths {
             cp.append_app_classpath(path);
         }
+        let mut arena = ClassArena {
+            cp: cp,
+            classes: CHashMap::new(),
+            mutex: Mutex::new(0),
+        };
+        arena.classes.insert("I".to_owned(), Arc::new(Klass::new_phantom_klass("I")));
+        arena.classes.insert("J".to_owned(), Arc::new(Klass::new_phantom_klass("J")));
+        arena.classes.insert("F".to_owned(), Arc::new(Klass::new_phantom_klass("F")));
+        arena.classes.insert("D".to_owned(), Arc::new(Klass::new_phantom_klass("D")));
+        arena.classes.insert("S".to_owned(), Arc::new(Klass::new_phantom_klass("S")));
+        arena.classes.insert("C".to_owned(), Arc::new(Klass::new_phantom_klass("C")));
+        arena.classes.insert("Z".to_owned(), Arc::new(Klass::new_phantom_klass("Z")));
+        arena.classes.insert("B".to_owned(), Arc::new(Klass::new_phantom_klass("B")));
+        arena.classes.insert("V".to_owned(), Arc::new(Klass::new_phantom_klass("V")));
         unsafe {
-            CLASSES.replace(Arc::new(ClassArena {
-                cp: cp,
-                classes: CHashMap::new(),
-                mutex: Mutex::new(0),
-            }));
+            CLASSES.replace(Arc::new(arena));
         }
     }
 

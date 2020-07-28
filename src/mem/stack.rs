@@ -1,7 +1,6 @@
-use crate::bytecode::method::Method;
-use crate::interpreter;
 use crate::interpreter::thread::ThreadContext;
 use crate::mem::{klass::*, *};
+use crate::{bytecode::method::Method, *};
 
 const DEFAULT_STACK_LEN: usize = 128 * 1024;
 
@@ -64,7 +63,7 @@ impl JavaStack {
     pub fn invoke(&mut self, mut frame: JavaFrame, pc: usize) -> usize {
         if !self.is_empty() {
             let (_, descriptor, _) = &frame.method().get_name_and_descriptor();
-            let (params, _) = interpreter::resolve_method_descriptor(descriptor);
+            let (params, _) = bytecode::resolve_method_descriptor(descriptor);
             let mut slots: usize = params
                 .into_iter()
                 .map(|p| match p.as_ref() {
@@ -95,7 +94,7 @@ impl JavaStack {
         let frame = self.frames.pop().expect("Illegal operands stack: ");
         if !self.is_empty() {
             let (_, descriptor, _) = &frame.method().get_name_and_descriptor();
-            let (_, ret) = interpreter::resolve_method_descriptor(descriptor);
+            let (_, ret) = bytecode::resolve_method_descriptor(descriptor);
             let slots: usize = match ret.as_ref() {
                 "D" | "J" => 2,
                 "V" => 0,

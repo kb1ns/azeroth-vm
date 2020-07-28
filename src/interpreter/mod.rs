@@ -1,9 +1,9 @@
 pub mod thread;
 
+use self::thread::ThreadContext;
 use crate::bytecode::{atom::*, constant_pool::ConstantItem, *};
 use crate::mem::{klass::*, metaspace::*, stack::*, *};
 use std::sync::Arc;
-use thread::ThreadContext;
 
 use log::trace;
 
@@ -257,15 +257,21 @@ pub fn execute(context: &mut ThreadContext) {
                     0x7c => context.stack.bi_op(math_bi!(i32, i32, >>)),
                     0x79 => {
                         let s = u32::from_le_bytes(context.stack.pop());
-                        context.stack.un_op_w(|d| (i64::from_le_bytes(d) << s).to_le_bytes());
+                        context
+                            .stack
+                            .un_op_w(|d| (i64::from_le_bytes(d) << s).to_le_bytes());
                     }
                     0x7b => {
                         let s = u32::from_le_bytes(context.stack.pop());
-                        context.stack.un_op_w(|d| (u64::from_le_bytes(d) << s).to_le_bytes());
+                        context
+                            .stack
+                            .un_op_w(|d| (u64::from_le_bytes(d) << s).to_le_bytes());
                     }
                     0x7d => {
                         let s = u32::from_le_bytes(context.stack.pop());
-                        context.stack.un_op_w(|d| (i64::from_le_bytes(d) << s).to_le_bytes());
+                        context
+                            .stack
+                            .un_op_w(|d| (i64::from_le_bytes(d) << s).to_le_bytes());
                     }
                     0x7e => context.stack.bi_op(math_bi!(i32, i32, &)),
                     0x7f => context.stack.bi_op_w(math_bi!(i64, i64, &)),
@@ -348,7 +354,7 @@ pub fn execute(context: &mut ThreadContext) {
                 if !initialized {
                     continue;
                 }
-                if let Some(ref field) = klass.bytecode.get_field(f, t) {
+                if let Some(ref field) = klass.bytecode.as_ref().unwrap().get_field(f, t) {
                     match &field.value.get() {
                         None => panic!(""),
                         Some(value) => match value {
@@ -378,7 +384,7 @@ pub fn execute(context: &mut ThreadContext) {
                 if !initialized {
                     continue;
                 }
-                if let Some(ref field) = klass.bytecode.get_field(&f, &t) {
+                if let Some(ref field) = klass.bytecode.as_ref().unwrap().get_field(&f, &t) {
                     &field.value.set(match t.as_ref() {
                         "D" | "J" => Some(Value::eval_w(context.stack.pop_w())),
                         _ => Some(Value::eval(context.stack.pop(), &t)),
@@ -455,12 +461,14 @@ pub fn execute(context: &mut ThreadContext) {
                 if let Some(method_ref) = klass.get_method_in_vtable(m, t) {
                     let new_frame = JavaFrame::new((*method_ref).0, (*method_ref).1);
                     context.pc = context.stack.invoke(new_frame, context.pc + 3);
-                } else if let Some(method) = klass.bytecode.get_method(m, t) {
+                } else if let Some(method) = klass.bytecode.as_ref().unwrap().get_method(m, t) {
                     if !method.is_final() {
                         panic!("ClassVerifyError");
                     }
-                    let new_frame =
-                        JavaFrame::new(Arc::as_ptr(&klass.bytecode), Arc::as_ptr(&method));
+                    let new_frame = JavaFrame::new(
+                        Arc::as_ptr(&klass.bytecode.as_ref().unwrap()),
+                        Arc::as_ptr(&method),
+                    );
                     context.pc = context.stack.invoke(new_frame, context.pc + 3);
                 } else {
                     panic!("NoSuchMethodError");
@@ -478,9 +486,11 @@ pub fn execute(context: &mut ThreadContext) {
                     .load_class(c, context)
                     .expect("ClassNotFoundException")
                     .0;
-                if let Some(method) = klass.bytecode.get_method(m, t) {
-                    let new_frame =
-                        JavaFrame::new(Arc::as_ptr(&klass.bytecode), Arc::as_ptr(&method));
+                if let Some(method) = klass.bytecode.as_ref().unwrap().get_method(m, t) {
+                    let new_frame = JavaFrame::new(
+                        Arc::as_ptr(&klass.bytecode.as_ref().unwrap()),
+                        Arc::as_ptr(&method),
+                    );
                     context.pc = context.stack.invoke(new_frame, context.pc + 3);
                 } else {
                     // TODO
@@ -500,13 +510,15 @@ pub fn execute(context: &mut ThreadContext) {
                 if !initialized {
                     continue;
                 }
-                if let Some(method) = klass.bytecode.get_method(m, t) {
+                if let Some(method) = klass.bytecode.as_ref().unwrap().get_method(m, t) {
                     // TODO
                     if !method.is_static() {
                         panic!("");
                     }
-                    let new_frame =
-                        JavaFrame::new(Arc::as_ptr(&klass.bytecode), Arc::as_ptr(&method));
+                    let new_frame = JavaFrame::new(
+                        Arc::as_ptr(&klass.bytecode.as_ref().unwrap()),
+                        Arc::as_ptr(&method),
+                    );
                     context.pc = context.stack.invoke(new_frame, context.pc + 3);
                 } else {
                     // TODO
@@ -524,9 +536,11 @@ pub fn execute(context: &mut ThreadContext) {
                     let obj_header = ObjectHeader::from_vm_raw(heap_ptr.add(addr as usize));
                     obj_header.klass.as_ref().expect("klass_pointer_null")
                 };
-                if let Some(method) = klass.bytecode.get_method(m, t) {
-                    let new_frame =
-                        JavaFrame::new(Arc::as_ptr(&klass.bytecode), Arc::as_ptr(&method));
+                if let Some(method) = klass.bytecode.as_ref().unwrap().get_method(m, t) {
+                    let new_frame = JavaFrame::new(
+                        Arc::as_ptr(&klass.bytecode.as_ref().unwrap()),
+                        Arc::as_ptr(&method),
+                    );
                     context.pc = context.stack.invoke(new_frame, context.pc + 5);
                 } else if let Some(method_ref) = klass.get_method_in_itable(c, m, t) {
                     let new_frame = JavaFrame::new((*method_ref).0, (*method_ref).1);
@@ -569,84 +583,6 @@ pub fn execute(context: &mut ThreadContext) {
 // TODO
 fn handle_exception(stack: &mut JavaStack, throwable: String, pc: usize) -> usize {
     pc
-}
-
-pub fn resolve_method_descriptor(descriptor: &str) -> (Vec<String>, String) {
-    let t = descriptor
-        .chars()
-        .into_iter()
-        .map(|x| x.to_string())
-        .collect::<Vec<_>>();
-    let mut params: Vec<String> = vec![];
-    let mut expect_type: bool = false;
-    let mut expect_semicolon: bool = false;
-    let mut token: String = String::new();
-    for (i, ch) in descriptor.chars().enumerate() {
-        if expect_semicolon {
-            token.push(ch);
-            if ch == ';' {
-                expect_semicolon = false;
-                expect_type = false;
-                params.push(token.clone());
-                token.clear();
-            }
-            continue;
-        }
-        match ch {
-            '(' => {
-                if expect_type {
-                    panic!(format!("Illegal method descriptor: {}", descriptor));
-                }
-                continue;
-            }
-            ')' => {
-                if expect_type {
-                    panic!(format!("Illegal method descriptor: {}", descriptor));
-                }
-                return (params, t[i + 1..].join(""));
-            }
-            JVM_ARRAY => {
-                expect_type = true;
-                token.push('[');
-            }
-            JVM_REF => {
-                expect_semicolon = true;
-                token.push('L');
-            }
-            JVM_BYTE | JVM_CHAR | JVM_FLOAT | JVM_DOUBLE | JVM_INT | JVM_LONG | JVM_SHORT
-            | JVM_BOOLEAN => {
-                if expect_type {
-                    token.push(ch);
-                    params.push(token.clone());
-                    token.clear();
-                    expect_type = false;
-                } else {
-                    params.push(ch.to_string());
-                }
-            }
-            _ => {
-                if expect_semicolon {
-                    token.push(ch);
-                } else {
-                    panic!(format!("Illegal method descriptor: {}", descriptor));
-                }
-            }
-        }
-    }
-    panic!(format!("Illegal method descriptor: {}", descriptor));
-}
-
-#[test]
-pub fn test_resolve_method() {
-    let (params, ret) = resolve_method_descriptor("(Ljava/lang/String;IJ)V");
-    assert_eq!(ret, "V");
-    assert_eq!(params, vec!["Ljava/lang/String;", "I", "J"]);
-    let (params, ret) = resolve_method_descriptor("([IJLjava/lang/String;)[Ljava/lang/String;");
-    assert_eq!(ret, "[Ljava/lang/String;");
-    assert_eq!(params, vec!["[I", "J", "Ljava/lang/String;"]);
-    let (params, ret) = resolve_method_descriptor("([Ljava/lang/String;)V");
-    assert_eq!(params, vec!["[Ljava/lang/String;"]);
-    assert_eq!(ret, "V");
 }
 
 #[test]

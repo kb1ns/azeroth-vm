@@ -8,7 +8,8 @@ use std::sync::{atomic::AtomicBool, Arc, Mutex};
 pub type MethodRef = (*const Class, *const Method);
 
 pub struct Klass {
-    pub bytecode: Arc<Class>,
+    pub bytecode: Option<Arc<Class>>,
+    pub name: String,
     pub classloader: Classloader,
     pub vtable: HashMap<RefKey, MethodRef>,
     pub itable: HashMap<RefKey, MethodRef>,
@@ -26,9 +27,20 @@ pub struct ObjectHeader {
     pub klass: *const Klass,
 }
 
+#[derive(Clone)]
+pub struct ArrayHeader {
+    pub mark: Ref,
+    pub count: usize,
+    pub klass: *const Klass,
+}
+
 pub const OBJ_HEADER_LEN: usize = size_of::<ObjectHeader>();
 
+pub const ARRAY_HEADER_LEN: usize = size_of::<ArrayHeader>();
+
 pub type ObjectHeaderRaw = [u8; OBJ_HEADER_LEN];
+
+pub type ArrayHeaderRaw = [u8; ARRAY_HEADER_LEN];
 
 impl ObjectHeader {
     pub fn new(klass: *const Klass) -> ObjectHeader {
@@ -59,8 +71,10 @@ impl Klass {
         superclass: Option<Arc<Klass>>,
         interfaces: Vec<Arc<Klass>>,
     ) -> Self {
+        let name = bytecode.get_name().to_owned();
         let mut klass = Klass {
-            bytecode: bytecode,
+            bytecode: Some(bytecode),
+            name: name,
             classloader: classloader,
             vtable: HashMap::new(),
             itable: HashMap::new(),
@@ -75,6 +89,22 @@ impl Klass {
         &klass.build_itable();
         &klass.build_layout();
         klass
+    }
+
+    pub fn new_phantom_klass(name: &str) -> Self {
+        Klass {
+            bytecode: None,
+            name: name.to_owned(),
+            classloader: Classloader::ROOT,
+            vtable: HashMap::new(),
+            itable: HashMap::new(),
+            layout: HashMap::new(),
+            len: 0,
+            superclass: None,
+            superinterfaces: vec![],
+            initialized: AtomicBool::new(true),
+            mutex: Mutex::<u8>::new(0),
+        }
     }
 
     pub fn get_method_in_vtable(&self, name: &str, desc: &str) -> Option<&MethodRef> {
@@ -94,7 +124,7 @@ impl Klass {
             }
             None => {}
         }
-        for m in &self.bytecode.methods {
+        for m in &self.bytecode.as_ref().unwrap().methods {
             if (m.is_public() || m.is_protected())
                 && !m.is_final()
                 && !m.is_static()
@@ -102,7 +132,7 @@ impl Klass {
             {
                 self.vtable.insert(
                     RefKey::new("".to_string(), m.name.clone(), m.descriptor.clone()),
-                    (Arc::as_ptr(&self.bytecode), Arc::as_ptr(m)),
+                    (Arc::as_ptr(&self.bytecode.as_ref().unwrap()), Arc::as_ptr(m)),
                 );
             }
         }
@@ -117,17 +147,17 @@ impl Klass {
             }
             None => {}
         }
-        let current = &*self.bytecode;
+        let current = &*self.bytecode.as_ref().unwrap();
         for ifs in &self.superinterfaces {
             for m in &current.methods {
                 if let Some(implement) = current.get_method(&m.name, &m.descriptor) {
                     self.itable.insert(
                         RefKey::new(
-                            ifs.bytecode.get_name().to_string(),
+                            ifs.name.clone(),
                             m.name.clone(),
                             m.descriptor.clone(),
                         ),
-                        (Arc::as_ptr(&self.bytecode), Arc::as_ptr(&implement)),
+                        (Arc::as_ptr(&self.bytecode.as_ref().unwrap()), Arc::as_ptr(&implement)),
                     );
                 }
             }
@@ -147,7 +177,7 @@ impl Klass {
             None => (0usize, 0usize),
         };
         let mut len = std::cmp::min(len, size);
-        let current = &*self.bytecode;
+        let current = &*self.bytecode.as_ref().unwrap();
         for f in &current.fields {
             if f.memory_size() > len % PTR_SIZE && len % PTR_SIZE != 0 {
                 len = len + PTR_SIZE - len % PTR_SIZE;

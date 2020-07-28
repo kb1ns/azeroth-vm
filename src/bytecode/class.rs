@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 pub struct Class {
     pub constant_pool: ConstantPool,
-    access_flag: U2,
+    pub access_flag: U2,
     pub this_class_name: String,
     pub super_class_name: String,
     pub interfaces: Interfaces,

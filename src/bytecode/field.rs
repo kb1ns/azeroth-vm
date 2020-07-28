@@ -33,9 +33,7 @@ impl Field {
             'C' | 'S' => 2,
             'I' | 'F' | 'L' | '[' => 4,
             'J' | 'D' => 8,
-            _ => {
-                panic!("Illegal descriptor");
-            }
+            _ => panic!("Illegal descriptor"),
         }
     }
 
@@ -96,12 +94,12 @@ impl Traveler<Fields> for Fields {
     }
 }
 
+// TODO
 fn init_value(access_flag: u16, descriptor: &str) -> Option<Value> {
     if access_flag & ACC_STATIC == ACC_STATIC {
-        if descriptor == "D" || descriptor == "J" {
-            Some(Value::DWord(0))
-        } else {
-            Some(Value::Word(0))
+        match descriptor {
+            "D" | "J" => Some(Value::DWord(0)),
+            _ => Some(Value::Word(0)),
         }
     } else {
         None
