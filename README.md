@@ -54,9 +54,11 @@ interface A {
 
 ```
 
+Compile and run
+
 ```
-    cargo build
-    export JAVA_HOME=${...}
-    cd java_test && javac *.java
-    ../target/debug/java --classpath . HelloWorld
+cargo build
+export JAVA_HOME=${...}
+cd java_test && javac *.java
+../target/debug/java --classpath . HelloWorld
 ```
