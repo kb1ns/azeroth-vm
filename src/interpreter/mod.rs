@@ -33,13 +33,9 @@ macro_rules! math_un {
 }
 
 pub fn execute(context: &mut ThreadContext) {
-    if context.stack.is_empty() {
-        return;
-    }
     while context.stack.has_next(context.pc) {
         let instruction = {
             let frame = context.stack.frame();
-            // TODO if debug
             frame.dump(context.pc);
             context.stack.code_at(context.pc)
         };
@@ -162,6 +158,28 @@ pub fn execute(context: &mut ThreadContext) {
                 context.stack.load(opr, 1);
                 context.pc = context.pc + 1;
             }
+            // iaload
+            0x2e => {
+                let array_idx = u32::from_le_bytes(context.stack.pop()) as usize;
+                let arrayref = u32::from_le_bytes(context.stack.pop()) as usize;
+                let current = context.stack.mut_frame();
+                let heap_ptr = jvm_heap!().base;
+                unsafe {
+                    let header_ptr = heap_ptr.add(arrayref);
+                    let header = ArrayHeader::from_vm_raw(header_ptr);
+                    // TODO
+                    if array_idx >= header.size as usize {
+                        panic!("ArrayIndexOutOfBoundsException");
+                    }
+                    let offset = (&*header.klass).len * array_idx;
+                    current.ptr.copy_from(
+                        heap_ptr.add(arrayref + ARRAY_HEADER_LEN + offset),
+                        (&*header.klass).len,
+                    );
+                    current.ptr = current.ptr.add((&*header.klass).len);
+                }
+                context.pc = context.pc + 1;
+            }
             // istore/fstore/astore
             0x36 | 0x38 | 0x3a => {
                 let opr = context.stack.code_at(context.pc + 1) as usize;
@@ -202,6 +220,27 @@ pub fn execute(context: &mut ThreadContext) {
             0x4b..=0x4e => {
                 let opr = context.stack.code_at(context.pc) as usize - 0x4b;
                 context.stack.store(opr, 1);
+                context.pc = context.pc + 1;
+            }
+            // iastore
+            0x4f => {
+                let v = context.stack.pop();
+                let array_idx = u32::from_le_bytes(context.stack.pop()) as usize;
+                let arrayref = u32::from_le_bytes(context.stack.pop()) as usize;
+                let current = context.stack.mut_frame();
+                let heap_ptr = jvm_heap!().base;
+                unsafe {
+                    let header_ptr = heap_ptr.add(arrayref);
+                    let header = ArrayHeader::from_vm_raw(header_ptr);
+                    // TODO
+                    if array_idx >= header.size as usize {
+                        panic!("ArrayIndexOutOfBoundsException");
+                    }
+                    let offset = (&*header.klass).len * array_idx;
+                    heap_ptr
+                        .add(arrayref + ARRAY_HEADER_LEN + offset)
+                        .copy_from(v.as_ptr(), (&*header.klass).len);
+                }
                 context.pc = context.pc + 1;
             }
             // pop
@@ -401,23 +440,31 @@ pub fn execute(context: &mut ThreadContext) {
                     | context.stack.code_at(context.pc + 2) as U2;
                 let (c, (f, t)) = context.stack.class().constant_pool.get_javaref(field_idx);
                 let (c, f, t) = (c.to_string(), f.to_string(), t.to_string());
-                // TODO load class `c`, push `f` to operands according to the type `t`
                 let klass = class_arena!()
                     .load_class(&c, context)
                     .expect("ClassNotFoundException")
                     .0;
                 let objref = context.stack.pop();
                 if objref == NULL {
-                    // TODO
                     panic!("NullPointerException");
                 }
                 let objref = u32::from_le_bytes(objref);
-                // TODO
                 let (offset, len) = klass
                     .layout
                     .get(&(c.as_ref(), f.as_ref(), t.as_ref()))
                     .expect("NoSuchFieldException");
-                context.stack.fetch_heap(objref, *offset, *len);
+
+                let current = context.stack.mut_frame();
+                let heap_ptr = jvm_heap!().base;
+                unsafe {
+                    let target = heap_ptr.add(objref as usize + OBJ_HEADER_LEN + *offset);
+                    current.ptr.copy_from(target, *len);
+                    if *len <= PTR_SIZE {
+                        current.ptr = current.ptr.add(PTR_SIZE);
+                    } else {
+                        current.ptr = current.ptr.add(2 * PTR_SIZE);
+                    }
+                }
                 context.pc = context.pc + 3;
             }
             // putfield
@@ -442,7 +489,17 @@ pub fn execute(context: &mut ThreadContext) {
                     .layout
                     .get(&(c.as_ref(), f.as_ref(), t.as_ref()))
                     .expect("NoSuchFieldException");
-                context.stack.set_heap_aligned(objref, *offset, *len);
+                let current = context.stack.mut_frame();
+                let heap_ptr = jvm_heap!().base;
+                unsafe {
+                    let target = heap_ptr.add(objref as usize + OBJ_HEADER_LEN + *offset);
+                    if *len <= PTR_SIZE {
+                        current.ptr = current.ptr.sub(PTR_SIZE)
+                    } else {
+                        current.ptr = current.ptr.sub(2 * PTR_SIZE)
+                    }
+                    target.copy_from(current.ptr, *len);
+                }
                 context.pc = context.pc + 3;
             }
             // invokevirtual
@@ -568,8 +625,8 @@ pub fn execute(context: &mut ThreadContext) {
                 }
                 let obj = jvm_heap!().allocate_object(&klass);
                 let v = obj.to_le_bytes();
-                trace!("allocate object, addr: {}", obj);
                 context.stack.push(&v, PTR_SIZE);
+                trace!("allocate object, addr: {}", obj);
                 context.pc = context.pc + 3;
             }
             // newarray
@@ -591,8 +648,34 @@ pub fn execute(context: &mut ThreadContext) {
                 let size = u32::from_le_bytes(context.stack.pop());
                 let array = jvm_heap!().allocate_array(&klass, size);
                 let v = array.to_le_bytes();
+                context.stack.push(&v, PTR_SIZE);
                 trace!("allocate array {}, addr:{}, size:{}", atype, array, size);
                 context.pc = context.pc + 2;
+            }
+            // anewarray
+            0xbd => {
+                let class_index = (context.stack.code_at(context.pc + 1) as U2) << 8
+                    | context.stack.code_at(context.pc + 2) as U2;
+                let class_name =
+                    "[".to_owned() + context.stack.class().constant_pool.get_str(class_index);
+                // TODO
+                let (klass, initialized) = class_arena!()
+                    .load_class(&class_name, context)
+                    .expect("ClassNotFoundException");
+                if !initialized {
+                    continue;
+                }
+                let size = u32::from_le_bytes(context.stack.pop());
+                let array = jvm_heap!().allocate_array(&klass, size);
+                let v = array.to_le_bytes();
+                context.stack.push(&v, PTR_SIZE);
+                trace!(
+                    "allocate array {}, addr:{}, size:{}",
+                    class_name,
+                    array,
+                    size
+                );
+                context.pc = context.pc + 3;
             }
             _ => panic!(format!(
                 "Instruction 0x{:2x?} not implemented yet.",

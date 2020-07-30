@@ -1,5 +1,5 @@
-use crate::mem::{klass::Klass, stack::*, *};
 use crate::interpreter::thread::ThreadContext;
+use crate::mem::{klass::Klass, stack::*, *};
 use log::trace;
 use std::sync::{Arc, Mutex};
 
@@ -44,15 +44,33 @@ impl ClassArena {
             classes: CHashMap::new(),
             mutex: Mutex::new(0),
         };
-        arena.classes.insert("I".to_owned(), Arc::new(Klass::new_phantom_klass("I")));
-        arena.classes.insert("J".to_owned(), Arc::new(Klass::new_phantom_klass("J")));
-        arena.classes.insert("F".to_owned(), Arc::new(Klass::new_phantom_klass("F")));
-        arena.classes.insert("D".to_owned(), Arc::new(Klass::new_phantom_klass("D")));
-        arena.classes.insert("S".to_owned(), Arc::new(Klass::new_phantom_klass("S")));
-        arena.classes.insert("C".to_owned(), Arc::new(Klass::new_phantom_klass("C")));
-        arena.classes.insert("Z".to_owned(), Arc::new(Klass::new_phantom_klass("Z")));
-        arena.classes.insert("B".to_owned(), Arc::new(Klass::new_phantom_klass("B")));
-        arena.classes.insert("V".to_owned(), Arc::new(Klass::new_phantom_klass("V")));
+        arena
+            .classes
+            .insert("I".to_owned(), Arc::new(Klass::new_phantom_klass("I")));
+        arena
+            .classes
+            .insert("J".to_owned(), Arc::new(Klass::new_phantom_klass("J")));
+        arena
+            .classes
+            .insert("F".to_owned(), Arc::new(Klass::new_phantom_klass("F")));
+        arena
+            .classes
+            .insert("D".to_owned(), Arc::new(Klass::new_phantom_klass("D")));
+        arena
+            .classes
+            .insert("S".to_owned(), Arc::new(Klass::new_phantom_klass("S")));
+        arena
+            .classes
+            .insert("C".to_owned(), Arc::new(Klass::new_phantom_klass("C")));
+        arena
+            .classes
+            .insert("Z".to_owned(), Arc::new(Klass::new_phantom_klass("Z")));
+        arena
+            .classes
+            .insert("B".to_owned(), Arc::new(Klass::new_phantom_klass("B")));
+        arena
+            .classes
+            .insert("V".to_owned(), Arc::new(Klass::new_phantom_klass("V")));
         unsafe {
             CLASSES.replace(Arc::new(arena));
         }
@@ -80,18 +98,18 @@ impl ClassArena {
             .unwrap()
             .replace_all(class_name, "/")
             .into_owned();
-        if &class_name[..1] == "[" {
-            let (_, initialized) = self.load_class(&class_name[1..], context)?;
-            let array_klass = Arc::new(Klass::new_phantom_klass(&class_name));
-            self.classes.insert_new(class_name, array_klass.clone());
-            return Ok((array_klass, initialized));
-        }
         match self.classes.get(&class_name) {
             Some(klass) => Ok((Arc::clone(&klass), true)),
             None => {
                 let _ = self.mutex.lock().unwrap();
                 if let Some(loaded) = self.classes.get(&class_name) {
                     return Ok((loaded.clone(), true));
+                }
+                if &class_name[..1] == "[" {
+                    let (_, initialized) = self.load_class(&class_name[1..], context)?;
+                    let array_klass = Arc::new(Klass::new_phantom_klass(&class_name));
+                    self.classes.insert(class_name, array_klass.clone());
+                    return Ok((array_klass, initialized));
                 }
                 let class = match self.parse_class(&class_name) {
                     Some(class) => Arc::new(class),
@@ -108,7 +126,7 @@ impl ClassArena {
                 for interface in class.get_interfaces() {
                     interfaces.push(self.load_class(interface, context)?.0);
                 }
-                initialize_class(&class, &mut context.stack, context.pc);
+                initialize_class(&class, context);
                 // TODO classloader
                 let klass = Arc::new(Klass::new(class, Classloader::ROOT, superclass, interfaces));
                 self.classes.insert(class_name, klass.clone());
@@ -118,12 +136,12 @@ impl ClassArena {
     }
 }
 
-fn initialize_class(class: &Arc<Class>, stack: &mut JavaStack, pc: usize) {
+fn initialize_class(class: &Arc<Class>, context: &mut ThreadContext) {
     trace!("initializing class {}", class.get_name());
     match class.get_method("<clinit>", "()V") {
         Some(clinit) => {
             let frame = JavaFrame::new(Arc::as_ptr(&class), Arc::as_ptr(&clinit));
-            stack.invoke(frame, pc);
+            context.pc = context.stack.invoke(frame, context.pc);
         }
         None => {}
     }

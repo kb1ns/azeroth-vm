@@ -21,26 +21,30 @@ public class HelloWorld implements A {
     }
 
     public static void main(String[] args) {
-            HelloWorld s = new HelloWorld();
-            s.incr();
-            s.decr();
-            A a = new HelloRust();
-            a.decr();
-            HelloRust.say(1, sum);
-	    int[] array = new int[10];
+        HelloWorld s = new HelloWorld();
+        s.incr();
+        s.decr();
+        A a = new HelloRust();
+        a.decr();
+        HelloRust.say(1, sum);
+        int[] array = new int[10];
+        int[][] _2darray = new int[10][];
+        String[] sarray = new String[10];
+        array[0] = 0xffee;
+        int tmp = array[0];
     }
 
 
     public static class HelloRust extends HelloWorld {
 
-	static int count = 100;
+        static int count = 100;
 
         public void incr() {
         }
 
-	public static int say(int i, int sum) {
-		return i + sum;
-	}
+        public static int say(int i, int sum) {
+            return i + sum;
+        }
     }
 }
 

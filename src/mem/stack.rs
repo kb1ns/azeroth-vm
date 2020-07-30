@@ -243,34 +243,6 @@ impl JavaStack {
         }
         v
     }
-
-    pub fn fetch_heap(&mut self, addr: u32, offset: usize, len: usize) {
-        let current = self.mut_frame();
-        let heap_ptr = jvm_heap!().base;
-        unsafe {
-            let target = heap_ptr.add(addr as usize + OBJ_HEADER_LEN + offset);
-            current.ptr.copy_from(target, len);
-            if len <= PTR_SIZE {
-                current.ptr = current.ptr.add(PTR_SIZE);
-            } else {
-                current.ptr = current.ptr.add(2 * PTR_SIZE);
-            }
-        }
-    }
-
-    pub fn set_heap_aligned(&mut self, addr: u32, offset: usize, len: usize) {
-        let current = self.mut_frame();
-        let heap_ptr = jvm_heap!().base;
-        unsafe {
-            let target = heap_ptr.add(addr as usize + OBJ_HEADER_LEN + offset);
-            if len <= PTR_SIZE {
-                current.ptr = current.ptr.sub(PTR_SIZE)
-            } else {
-                current.ptr = current.ptr.sub(2 * PTR_SIZE)
-            }
-            target.copy_from(current.ptr, len);
-        }
-    }
 }
 pub struct JavaFrame {
     pub locals: Vec<u8>,
@@ -334,13 +306,12 @@ impl JavaFrame {
         println!("current method: {:?} {:?}", name, descriptor);
         println!("locals: {:02x?}", self.locals);
         println!("stacks: {:02x?}", self.operands);
-        println!("base: {:x?}", self.operands.as_ptr());
-        println!("ptr: {:x?}", self.ptr);
+        println!("base: {:2x?}", self.operands.as_ptr());
+        println!("ptr: {:2x?}", self.ptr);
         println!("pc: {:?}", pc);
-        println!(
-            "instructions: {:02x?}",
-            self.method().get_code().expect("").2
-        );
+        let code = &self.method().get_code().expect("").2;
+        println!("[pc]: {:02x?}", code[pc]);
+        println!("code: {:02x?}", code);
         println!();
     }
 }

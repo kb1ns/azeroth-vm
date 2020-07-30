@@ -1,6 +1,6 @@
 # AzerothVM
 
-JNI is still working in progress, code snippet below just works fine.
+JNI is still working in progress, the code snippet below works just fine.
 
 ```
 public class HelloWorld implements A {
@@ -31,8 +31,13 @@ public class HelloWorld implements A {
         A a = new HelloRust();
         a.decr();
         HelloRust.say(1, sum);
-	int[] array = new int[10];
+        int[] array = new int[10];
+        int[][] _2darray = new int[10][];
+        String[] sarray = new String[10];
+        array[0] = 0xcafebabe;
+        int tmp = array[0];
     }
+
 
     public static class HelloRust extends HelloWorld {
 
@@ -51,7 +56,6 @@ interface A {
 
     void decr();
 }
-
 ```
 
 Compile and run
