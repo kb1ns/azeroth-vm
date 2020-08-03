@@ -30,8 +30,10 @@ public class HelloWorld implements A {
         int[] array = new int[10];
         int[][] _2darray = new int[10][];
         String[] sarray = new String[10];
-        array[0] = 0xffee;
+        // test array_index_out_of_range
+        array[0] = 0xcafebabe;
         int tmp = array[0];
+        // String hello = "Hello, World.";
     }
 
 
@@ -40,6 +42,8 @@ public class HelloWorld implements A {
         static int count = 100;
 
         public void incr() {
+            super.incr();
+            count += 1;
         }
 
         public static int say(int i, int sum) {

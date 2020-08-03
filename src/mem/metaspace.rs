@@ -39,7 +39,7 @@ impl ClassArena {
         for path in app_paths {
             cp.append_app_classpath(path);
         }
-        let mut arena = ClassArena {
+        let arena = ClassArena {
             cp: cp,
             classes: CHashMap::new(),
             mutex: Mutex::new(0),
@@ -140,8 +140,10 @@ fn initialize_class(class: &Arc<Class>, context: &mut ThreadContext) {
     trace!("initializing class {}", class.get_name());
     match class.get_method("<clinit>", "()V") {
         Some(clinit) => {
-            let frame = JavaFrame::new(Arc::as_ptr(&class), Arc::as_ptr(&clinit));
-            context.pc = context.stack.invoke(frame, context.pc);
+            context.pc =
+                context
+                    .stack
+                    .invoke(Arc::as_ptr(&class), Arc::as_ptr(&clinit), context.pc, 0);
         }
         None => {}
     }

@@ -8,7 +8,6 @@ pub mod method;
 
 use self::atom::*;
 use self::constant_pool::ConstantPool;
-use crate::mem::*;
 
 trait Traveler<T> {
     fn read<I>(seq: &mut I, constants: Option<&ConstantPool>) -> T
@@ -16,31 +15,12 @@ trait Traveler<T> {
         I: Iterator<Item = u8>;
 }
 
-pub const JVM_VOID: char = 'V';
-pub const JVM_BYTE: char = 'B';
-pub const JVM_CHAR: char = 'C';
-pub const JVM_DOUBLE: char = 'D';
-pub const JVM_FLOAT: char = 'F';
-pub const JVM_INT: char = 'I';
-pub const JVM_LONG: char = 'J';
-pub const JVM_SHORT: char = 'S';
-pub const JVM_BOOLEAN: char = 'Z';
-pub const JVM_REF: char = 'L';
-pub const JVM_ARRAY: char = '[';
-
 pub const METHOD_ACC_STATIC: U2 = 0x0008;
 
-pub fn literal_size(desc: &str) -> usize {
-    match desc {
-        "D" | "J" => 8,
-        "B" | "Z" => 1,
-        "S" => 2,
-        "C" | "I" | "F" => 4,
-        _ => 0,
-    }
-}
-
-pub fn resolve_method_descriptor(descriptor: &str) -> (Vec<String>, String) {
+pub fn resolve_method_descriptor(
+    descriptor: &str,
+    access_flag: U2,
+) -> (Vec<String>, usize, String) {
     let t = descriptor
         .chars()
         .into_iter()
@@ -50,6 +30,11 @@ pub fn resolve_method_descriptor(descriptor: &str) -> (Vec<String>, String) {
     let mut expect_type: bool = false;
     let mut expect_semicolon: bool = false;
     let mut token: String = String::new();
+    let instance = if access_flag & METHOD_ACC_STATIC == METHOD_ACC_STATIC {
+        0
+    } else {
+        1
+    };
     for (i, ch) in descriptor.chars().enumerate() {
         if expect_semicolon {
             token.push(ch);
@@ -72,18 +57,25 @@ pub fn resolve_method_descriptor(descriptor: &str) -> (Vec<String>, String) {
                 if expect_type {
                     panic!(format!("Illegal method descriptor: {}", descriptor));
                 }
-                return (params, t[i + 1..].join(""));
+                let slots = params
+                    .iter()
+                    .map(|x| match x.as_ref() {
+                        "D" | "J" => 2,
+                        _ => 1,
+                    })
+                    .sum::<usize>()
+                    + instance;
+                return (params, slots, t[i + 1..].join(""));
             }
-            JVM_ARRAY => {
+            '[' => {
                 expect_type = true;
                 token.push('[');
             }
-            JVM_REF => {
+            'L' => {
                 expect_semicolon = true;
                 token.push('L');
             }
-            JVM_BYTE | JVM_CHAR | JVM_FLOAT | JVM_DOUBLE | JVM_INT | JVM_LONG | JVM_SHORT
-            | JVM_BOOLEAN => {
+            'I' | 'J' | 'S' | 'B' | 'C' | 'F' | 'D' | 'Z' => {
                 if expect_type {
                     token.push(ch);
                     params.push(token.clone());
@@ -107,13 +99,19 @@ pub fn resolve_method_descriptor(descriptor: &str) -> (Vec<String>, String) {
 
 #[test]
 pub fn test_resolve_method() {
-    let (params, ret) = resolve_method_descriptor("(Ljava/lang/String;IJ)V");
+    let (params, slots, ret) =
+        resolve_method_descriptor("(Ljava/lang/String;IJ)V", METHOD_ACC_STATIC);
     assert_eq!(ret, "V");
+    assert_eq!(slots, 4);
     assert_eq!(params, vec!["Ljava/lang/String;", "I", "J"]);
-    let (params, ret) = resolve_method_descriptor("([IJLjava/lang/String;)[Ljava/lang/String;");
+    let (params, slots, ret) =
+        resolve_method_descriptor("([[I[J[[Ljava/lang/IString;)[Ljava/lang/String;", 0);
     assert_eq!(ret, "[Ljava/lang/String;");
-    assert_eq!(params, vec!["[I", "J", "Ljava/lang/String;"]);
-    let (params, ret) = resolve_method_descriptor("([Ljava/lang/String;)V");
+    assert_eq!(slots, 4);
+    assert_eq!(params, vec!["[[I", "[J", "[[Ljava/lang/IString;"]);
+    let (params, slots, ret) =
+        resolve_method_descriptor("([Ljava/lang/String;)V", METHOD_ACC_STATIC);
     assert_eq!(params, vec!["[Ljava/lang/String;"]);
+    assert_eq!(slots, 1);
     assert_eq!(ret, "V");
 }

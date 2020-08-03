@@ -1,34 +1,80 @@
-use crate::interpreter::thread::ThreadContext;
-use crate::mem::{klass::*, *};
-use crate::{bytecode::method::Method, *};
+use crate::{
+    bytecode,
+    bytecode::method::Method,
+    interpreter::thread::ThreadContext,
+    mem::{klass::*, *},
+};
+
+use std::{mem::transmute, ptr};
 
 const DEFAULT_STACK_LEN: usize = 128 * 1024;
 
 pub struct JavaStack {
+    data: Vec<u8>,
     frames: Vec<JavaFrame>,
     max_stack_size: usize,
 }
 
+pub struct JavaFrame {
+    locals: *mut u8,
+    operands: *mut u8,
+    class: *const Class,
+    method: *const Method,
+    pc: usize,
+    max_locals: usize,
+}
+
 impl JavaStack {
     pub fn new() -> Self {
-        JavaStack {
-            frames: Vec::new(),
-            // TODO
-            max_stack_size: 0,
+        Self {
+            data: vec![0u8; DEFAULT_STACK_LEN],
+            frames: Vec::<JavaFrame>::with_capacity(256),
+            max_stack_size: DEFAULT_STACK_LEN,
+        }
+    }
+
+    pub fn frame(&self) -> &JavaFrame {
+        self.frames.last().expect("empty_stack")
+    }
+
+    pub fn mut_frame(&mut self) -> &mut JavaFrame {
+        self.frames.last_mut().expect("empty_stack")
+    }
+
+    pub fn operands(&self) -> *mut u8 {
+        self.frame().operands
+    }
+
+    pub fn locals(&self) -> *mut u8 {
+        self.frame().locals
+    }
+
+    pub fn update(&mut self, operands: *mut u8) {
+        self.mut_frame().operands = operands;
+    }
+
+    pub fn upward(&mut self, n: usize) {
+        unsafe {
+            self.update(self.operands().add(n * PTR_SIZE));
+        }
+    }
+
+    pub fn downward(&mut self, n: usize) {
+        unsafe {
+            self.update(self.operands().sub(n * PTR_SIZE));
         }
     }
 
     pub fn has_next(&self, pc: usize) -> bool {
         match self.frames.last() {
-            Some(ref frame) => {
-                pc < frame
-                    .method()
+            None => false,
+            Some(ref f) => {
+                pc < unsafe { &*f.method }
                     .get_code()
-                    .expect("Illegal class file")
+                    .expect("null_code_attribute")
                     .2
                     .len()
             }
-            None => false,
         }
     }
 
@@ -48,144 +94,173 @@ impl JavaStack {
         self.frame().class
     }
 
-    pub fn frame(&self) -> &JavaFrame {
-        self.frames.last().expect("current_frame_empty")
-    }
-
-    pub fn mut_frame(&mut self) -> &mut JavaFrame {
-        self.frames.last_mut().expect("current_frame_empty")
-    }
-
     pub fn is_empty(&self) -> bool {
         self.frames.is_empty()
     }
 
-    pub fn invoke(&mut self, mut frame: JavaFrame, pc: usize) -> usize {
-        if !self.is_empty() {
-            let (_, descriptor, _) = &frame.method().get_name_and_descriptor();
-            let (params, _) = bytecode::resolve_method_descriptor(descriptor);
-            let mut slots: usize = params
-                .into_iter()
-                .map(|p| match p.as_ref() {
-                    "D" | "J" => 2,
-                    _ => 1,
-                })
-                .sum();
-            if !frame.method().is_static() {
-                slots = slots + 1;
-            }
-            if frame.method().is_native() {
-                // TODO native invokcation not implemented yet, return the pc directly
-                return pc;
-            }
-            let current = self.mut_frame();
-            unsafe {
-                let params = frame.locals.as_mut_ptr();
-                current.ptr = current.ptr.sub(slots * PTR_SIZE);
-                current.ptr.copy_to(params, slots * PTR_SIZE);
-            }
-            frame.pc = pc;
+    pub fn invoke(
+        &mut self,
+        class: *const Class,
+        method: *const Method,
+        pc: usize,
+        locals: usize,
+    ) -> usize {
+        // -------- drop this after implements native method -----------
+        let m = unsafe { &*method };
+        if m.is_native() {
+            let (_, desc, access_flag) = m.get_name_and_descriptor();
+            let (_, slots, ret) = bytecode::resolve_method_descriptor(desc, access_flag);
+            let ret: usize = match ret.as_ref() {
+                "D" | "J" => 2,
+                "V" => 0,
+                _ => 1,
+            };
+            self.downward(slots - ret);
+            return pc;
         }
-        self.frames.push(frame);
+        // -------------------------------------------------------------
+
+        let locals = unsafe {
+            if self.is_empty() {
+                self.data.as_mut_ptr().add(locals * PTR_SIZE)
+            } else {
+                self.operands().sub(locals * PTR_SIZE)
+            }
+        };
+        let method_ref = unsafe { &*method };
+        match method_ref.get_code() {
+            None => panic!("AbstractMethod"),
+            Some((_, max_locals, _, _, _)) => self.frames.push(JavaFrame {
+                locals: locals,
+                operands: unsafe { locals.add(max_locals as usize * PTR_SIZE) },
+                class: class,
+                method: method,
+                pc: pc,
+                max_locals: max_locals as usize,
+            }),
+        }
         0
     }
 
-    pub fn backtrack(&mut self) -> usize {
-        let frame = self.frames.pop().expect("Illegal operands stack: ");
+    pub fn return_normal(&mut self) -> usize {
+        let frame = self.frames.pop().expect("empty_stack");
         if !self.is_empty() {
-            let (_, descriptor, _) = &frame.method().get_name_and_descriptor();
-            let (_, ret) = bytecode::resolve_method_descriptor(descriptor);
+            let (_, descriptor, access_flag) = &self.method().get_name_and_descriptor();
+            let (_, _, ret) = bytecode::resolve_method_descriptor(descriptor, *access_flag);
             let slots: usize = match ret.as_ref() {
                 "D" | "J" => 2,
                 "V" => 0,
                 _ => 1,
             };
-            let current = self.mut_frame();
             unsafe {
-                let return_val = frame.ptr.sub(slots * PTR_SIZE);
-                current.ptr.copy_from(return_val, slots * PTR_SIZE);
-                current.ptr = current.ptr.add(slots * PTR_SIZE);
+                let val = frame.operands.sub(slots * PTR_SIZE);
+                self.operands().copy_from(val, slots * PTR_SIZE);
+                self.update(self.operands().add(slots * PTR_SIZE));
             }
         }
         frame.pc
     }
 
+    pub fn fire_exception(&mut self) -> usize {
+        let frame = self.frames.pop().expect("empty_stack");
+        if !self.is_empty() {
+            unsafe {
+                let error = frame.operands.sub(PTR_SIZE);
+                self.operands().copy_from(error, PTR_SIZE);
+                self.update(self.operands().add(PTR_SIZE));
+            }
+        }
+        frame.pc
+    }
+
+    pub fn match_exception_table(&self, pc: usize, klass: &Klass) -> Option<usize> {
+        let exception_table = self.method().get_code().unwrap().3;
+        for handler in exception_table.as_slice() {
+            if pc >= handler.start_pc as usize && pc < handler.end_pc as usize {
+                match &handler.catch_type {
+                    Some(exception_type) => {
+                        if is_subclass(klass, &exception_type) {
+                            return Some(handler.handler_pc as usize);
+                        }
+                    }
+                    None => return Some(handler.handler_pc as usize),
+                }
+            }
+        }
+        None
+    }
+
     pub fn code_at(&self, pc: usize) -> u8 {
-        self.frame().code_at(pc)
+        self.method().get_code().unwrap().2[pc]
     }
 
     pub fn load(&mut self, offset: usize, count: usize) {
-        let current = self.mut_frame();
         unsafe {
-            current.ptr.copy_from(
-                current.locals[offset * PTR_SIZE..].as_ptr(),
-                count * PTR_SIZE,
-            );
-            current.ptr = current.ptr.add(count * PTR_SIZE);
+            self.operands()
+                .copy_from(self.locals().add(offset * PTR_SIZE), count * PTR_SIZE);
+            self.update(self.operands().add(count * PTR_SIZE));
         }
     }
 
     pub fn store(&mut self, offset: usize, count: usize) {
-        let current = self.mut_frame();
         unsafe {
-            current.ptr = current.ptr.sub(count * PTR_SIZE);
-            current.ptr.copy_to(
-                current.locals[offset * PTR_SIZE..].as_mut_ptr(),
-                count * PTR_SIZE,
-            );
+            self.update(self.operands().sub(count * PTR_SIZE));
+            self.locals()
+                .add(offset * PTR_SIZE)
+                .copy_from(self.operands(), count * PTR_SIZE);
         }
     }
 
     pub fn get(&self, offset: usize) -> Slot {
-        let mut data = NULL;
-        let current = self.frame();
-        &data[..].copy_from_slice(&current.locals[offset * PTR_SIZE..(offset + 1) * PTR_SIZE]);
-        data
+        unsafe { *self.locals().add(offset * PTR_SIZE).cast::<Slot>() }
     }
 
     pub fn get_w(&self, offset: usize) -> WideSlot {
-        let mut data = LONG_NULL;
-        let current = self.frame();
-        &data[..].copy_from_slice(&current.locals[offset * PTR_SIZE..(offset + 2) * PTR_SIZE]);
-        data
+        unsafe { *self.locals().add(offset * PTR_SIZE).cast::<WideSlot>() }
     }
 
-    pub fn set(&mut self, offset: usize, v: Slot) {
-        let frame = self.mut_frame();
-        &frame.locals[offset * PTR_SIZE..].copy_from_slice(&v[..]);
-    }
-
-    pub fn set_w(&mut self, offset: usize, v: WideSlot) {
-        let frame = self.mut_frame();
-        &frame.locals[offset * PTR_SIZE..].copy_from_slice(&v[..]);
-    }
-
-    pub fn push(&mut self, v: &[u8], len: usize) {
-        let current = self.mut_frame();
+    pub fn set(&self, offset: usize, v: &Slot) {
         unsafe {
-            current.ptr.copy_from(v.as_ptr(), len);
-            current.ptr = current.ptr.add(len);
+            self.locals()
+                .add(offset * PTR_SIZE)
+                .copy_from(v.as_ptr(), PTR_SIZE);
+        }
+    }
+
+    pub fn set_w(&self, offset: usize, v: &WideSlot) {
+        unsafe {
+            self.locals()
+                .add(offset * PTR_SIZE)
+                .copy_from(v.as_ptr(), PTR_SIZE * 2);
+        }
+    }
+
+    pub fn push(&mut self, v: &Slot) {
+        unsafe {
+            self.operands().copy_from(v.as_ptr(), PTR_SIZE);
+            self.update(self.operands().add(PTR_SIZE));
+        }
+    }
+
+    pub fn push_w(&mut self, v: &WideSlot) {
+        unsafe {
+            self.operands().copy_from(v.as_ptr(), PTR_SIZE * 2);
+            self.update(self.operands().add(PTR_SIZE * 2));
         }
     }
 
     pub fn pop(&mut self) -> Slot {
-        let mut data = NULL;
-        let current = self.mut_frame();
         unsafe {
-            current.ptr = current.ptr.sub(PTR_SIZE);
-            current.ptr.copy_to(data.as_mut_ptr(), PTR_SIZE);
+            self.update(self.operands().sub(PTR_SIZE));
+            *self.operands().cast::<Slot>()
         }
-        data
     }
 
     pub fn pop_w(&mut self) -> WideSlot {
-        let mut data = LONG_NULL;
-        let current = self.mut_frame();
         unsafe {
-            current.ptr = current.ptr.sub(PTR_SIZE * 2);
-            current.ptr.copy_to(data.as_mut_ptr(), PTR_SIZE * 2);
+            self.update(self.operands().sub(PTR_SIZE * 2));
+            *self.operands().cast::<WideSlot>()
         }
-        data
     }
 
     pub fn bi_op<F>(&mut self, f: F)
@@ -194,7 +269,7 @@ impl JavaStack {
     {
         let left = self.pop();
         let right = self.pop();
-        self.push(&f(left, right), PTR_SIZE);
+        self.push(&f(left, right));
     }
 
     pub fn bi_op_w<F>(&mut self, f: F)
@@ -203,7 +278,7 @@ impl JavaStack {
     {
         let left = self.pop_w();
         let right = self.pop_w();
-        self.push(&f(left, right), 2 * PTR_SIZE);
+        self.push_w(&f(left, right));
     }
 
     pub fn un_op<F>(&mut self, f: F)
@@ -211,7 +286,7 @@ impl JavaStack {
         F: Fn(Slot) -> Slot,
     {
         let opr = self.pop();
-        self.push(&f(opr), PTR_SIZE);
+        self.push(&f(opr));
     }
 
     pub fn un_op_w<F>(&mut self, f: F)
@@ -219,194 +294,53 @@ impl JavaStack {
         F: Fn(WideSlot) -> WideSlot,
     {
         let opr = self.pop_w();
-        self.push(&f(opr), 2 * PTR_SIZE);
+        self.push_w(&f(opr));
     }
 
-    pub fn top(&self) -> Slot {
-        let mut v = NULL;
-        unsafe {
-            self.frame()
-                .ptr
-                .sub(PTR_SIZE)
-                .copy_to(v.as_mut_ptr(), PTR_SIZE);
-        }
-        v
+    pub fn top(&self) -> &Slot {
+        unsafe { &*self.operands().sub(PTR_SIZE).cast::<Slot>() }
     }
 
-    pub fn top_w(&self) -> WideSlot {
-        let mut v = LONG_NULL;
-        unsafe {
-            self.frame()
-                .ptr
-                .sub(PTR_SIZE)
-                .copy_to(v.as_mut_ptr(), 2 * PTR_SIZE);
-        }
-        v
-    }
-}
-pub struct JavaFrame {
-    pub locals: Vec<u8>,
-    pub operands: Vec<u8>,
-    pub ptr: *mut u8,
-    pub class: *const Class,
-    pub method: *const Method,
-    pub pc: usize,
-}
-
-impl JavaFrame {
-    pub fn new(class: *const Class, method: *const Method) -> JavaFrame {
-        let method_ref = unsafe { &*method };
-        match method_ref.get_code() {
-            None => {
-                if !method_ref.is_native() {
-                    panic!("Abstract method or interface not allow here");
-                }
-                // TODO native method
-                let mut operands: Vec<u8> = vec![];
-                let ptr = operands.as_mut_ptr();
-                JavaFrame {
-                    locals: vec![],
-                    operands: operands,
-                    ptr: ptr,
-                    class: class,
-                    method: method,
-                    pc: 0,
-                }
-            }
-            Some((stacks, locals, _, _, _)) => {
-                let mut operands = vec![0u8; PTR_SIZE * stacks as usize];
-                let ptr = operands.as_mut_ptr();
-                JavaFrame {
-                    locals: vec![0u8; PTR_SIZE * locals as usize],
-                    operands: operands,
-                    ptr: ptr,
-                    class: class,
-                    method: method,
-                    pc: 0,
-                }
-            }
-        }
+    pub fn top_w(&self) -> &WideSlot {
+        unsafe { &*self.operands().sub(2 * PTR_SIZE).cast::<WideSlot>() }
     }
 
-    pub fn method(&self) -> &Method {
-        unsafe { &*self.method }
-    }
-
-    pub fn class(&self) -> &Class {
-        unsafe { &*self.class }
-    }
-
-    pub fn code_at(&self, pc: usize) -> u8 {
-        self.method().get_code().expect("").2[pc]
+    pub fn top_n(&self, n: usize) -> &Slot {
+        unsafe { &*self.operands().sub(PTR_SIZE * n).cast::<Slot>() }
     }
 
     pub fn dump(&self, pc: usize) {
         let (name, descriptor, _) = self.method().get_name_and_descriptor();
+        println!("method layer: {}", self.frames.len() - 1);
         println!("current class: {:?}", self.class().get_name());
         println!("current method: {:?} {:?}", name, descriptor);
-        println!("locals: {:02x?}", self.locals);
-        println!("stacks: {:02x?}", self.operands);
-        println!("base: {:2x?}", self.operands.as_ptr());
-        println!("ptr: {:2x?}", self.ptr);
+        let locals_offset = self.locals() as usize - self.data.as_ptr() as usize;
+        println!(
+            "locals: {:02x?}",
+            &self.data[locals_offset..locals_offset + self.frame().max_locals * PTR_SIZE]
+        );
+        let operands_offset = self.operands() as usize - self.data.as_ptr() as usize;
+        println!(
+            "operands: {:02x?}",
+            &self.data[locals_offset + self.frame().max_locals * PTR_SIZE..operands_offset]
+        );
         println!("pc: {:?}", pc);
-        let code = &self.method().get_code().expect("").2;
-        println!("[pc]: {:02x?}", code[pc]);
-        println!("code: {:02x?}", code);
+        println!("[pc]: {:02x?}", self.code_at(pc));
+        println!("code: {:02x?}", self.method().get_code().unwrap().2);
         println!();
     }
 }
 
-#[cfg(test)]
-mod test {
-
-    #[test]
-    pub fn test_stack() {
-        let java_lang_object = "yv66vgAAADQATgcAMQoAAQAyCgARADMKADQANQoAAQA2CAA3CgARADgKADkAOgoAAQA7BwA8CAA9CgAKAD4DAA9CPwgAPwoAEQBACgARAEEHAEIBAAY8aW5pdD4BAAMoKVYBAARDb2RlAQAPTGluZU51bWJlclRhYmxlAQAPcmVnaXN0ZXJOYXRpdmVzAQAIZ2V0Q2xhc3MBABMoKUxqYXZhL2xhbmcvQ2xhc3M7AQAJU2lnbmF0dXJlAQAWKClMamF2YS9sYW5nL0NsYXNzPCo+OwEACGhhc2hDb2RlAQADKClJAQAGZXF1YWxzAQAVKExqYXZhL2xhbmcvT2JqZWN0OylaAQANU3RhY2tNYXBUYWJsZQEABWNsb25lAQAUKClMamF2YS9sYW5nL09iamVjdDsBAApFeGNlcHRpb25zBwBDAQAIdG9TdHJpbmcBABQoKUxqYXZhL2xhbmcvU3RyaW5nOwEABm5vdGlmeQEACW5vdGlmeUFsbAEABHdhaXQBAAQoSilWBwBEAQAFKEpJKVYBAAhmaW5hbGl6ZQcARQEACDxjbGluaXQ+AQAKU291cmNlRmlsZQEAC09iamVjdC5qYXZhAQAXamF2YS9sYW5nL1N0cmluZ0J1aWxkZXIMABIAEwwAFwAYBwBGDABHACUMAEgASQEAAUAMABsAHAcASgwASwBMDAAkACUBACJqYXZhL2xhbmcvSWxsZWdhbEFyZ3VtZW50RXhjZXB0aW9uAQAZdGltZW91dCB2YWx1ZSBpcyBuZWdhdGl2ZQwAEgBNAQAlbmFub3NlY29uZCB0aW1lb3V0IHZhbHVlIG91dCBvZiByYW5nZQwAKAApDAAWABMBABBqYXZhL2xhbmcvT2JqZWN0AQAkamF2YS9sYW5nL0Nsb25lTm90U3VwcG9ydGVkRXhjZXB0aW9uAQAeamF2YS9sYW5nL0ludGVycnVwdGVkRXhjZXB0aW9uAQATamF2YS9sYW5nL1Rocm93YWJsZQEAD2phdmEvbGFuZy9DbGFzcwEAB2dldE5hbWUBAAZhcHBlbmQBAC0oTGphdmEvbGFuZy9TdHJpbmc7KUxqYXZhL2xhbmcvU3RyaW5nQnVpbGRlcjsBABFqYXZhL2xhbmcvSW50ZWdlcgEAC3RvSGV4U3RyaW5nAQAVKEkpTGphdmEvbGFuZy9TdHJpbmc7AQAVKExqYXZhL2xhbmcvU3RyaW5nOylWACEAEQAAAAAAAAAOAAEAEgATAAEAFAAAABkAAAABAAAAAbEAAAABABUAAAAGAAEAAAAlAQoAFgATAAABEQAXABgAAQAZAAAAAgAaAQEAGwAcAAAAAQAdAB4AAQAUAAAALgACAAIAAAALKiumAAcEpwAEA6wAAAACABUAAAAGAAEAAACVAB8AAAAFAAIJQAEBBAAgACEAAQAiAAAABAABACMAAQAkACUAAQAUAAAAPAACAAEAAAAkuwABWbcAAiq2AAO2AAS2AAUSBrYABSq2AAe4AAi2AAW2AAmwAAAAAQAVAAAABgABAAAA7AERACYAEwAAAREAJwATAAABEQAoACkAAQAiAAAABAABACoAEQAoACsAAgAUAAAAcgAEAAQAAAAyHwmUnAANuwAKWRILtwAMvx2bAAkdEg2kAA27AApZEg63AAy/HZ4ABx8KYUAqH7YAD7EAAAACABUAAAAiAAgAAAG/AAYBwAAQAcMAGgHEACQByAAoAckALAHMADEBzQAfAAAABgAEEAkJBwAiAAAABAABACoAEQAoABMAAgAUAAAAIgADAAEAAAAGKgm2AA+xAAAAAQAVAAAACgACAAAB9gAFAfcAIgAAAAQAAQAqAAQALAATAAIAFAAAABkAAAABAAAAAbEAAAABABUAAAAGAAEAAAIrACIAAAAEAAEALQAIAC4AEwABABQAAAAgAAAAAAAAAAS4ABCxAAAAAQAVAAAACgACAAAAKQADACoAAQAvAAAAAgAw";
-        let class_vec = base64::decode(java_lang_object).unwrap();
-        let class = std::boxed::Box::new(super::Class::from_vec(class_vec));
-        let method = std::boxed::Box::new(
-            class
-                .get_method("toString", "()Ljava/lang/String;")
-                .unwrap(),
-        );
-        let class = std::boxed::Box::into_raw(class);
-        let method = std::sync::Arc::as_ptr(&method);
-        let locals = vec![
-            0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8, 0xau8, 0xbu8, 0xcu8, 0xdu8, 0xeu8,
-            0xfu8,
-        ];
-        let mut operands = vec![0u8; 32];
-        let ptr = operands.as_mut_ptr();
-        let init = super::JavaFrame {
-            locals: locals,
-            operands: operands,
-            ptr: ptr,
-            class: class,
-            method: method,
-            pc: 0,
-        };
-        let mut stack = super::JavaStack {
-            frames: Vec::<super::JavaFrame>::with_capacity(10),
-            max_stack_size: 4096,
-        };
-        stack.frames.push(init);
-        // load, ptr: 0 -> 4
-        stack.load(0, 1);
-        assert_eq!(
-            &stack.frames.last().unwrap().operands[..4],
-            &[0u8, 1u8, 2u8, 3u8]
-        );
-        {
-            let ptr = stack.frames.last().unwrap().ptr;
-            assert_eq!(
-                ptr,
-                stack.frames.last_mut().unwrap().operands[4..].as_mut_ptr()
-            );
+fn is_subclass(klass: &Klass, target: &str) -> bool {
+    let mut thisclass = klass;
+    loop {
+        if &thisclass.name == target {
+            return true;
         }
-        // load, ptr: 4 -> 8
-        stack.load(3, 1);
-        assert_eq!(
-            &stack.frames.last().unwrap().operands[4..8],
-            &[0xcu8, 0xdu8, 0xeu8, 0xfu8]
-        );
-        {
-            let ptr = stack.frames.last().unwrap().ptr;
-            assert_eq!(
-                ptr,
-                stack.frames.last_mut().unwrap().operands[8..].as_mut_ptr()
-            );
+        if thisclass.superclass.is_none() {
+            break;
         }
-        // store, ptr: 8 -> 4
-        stack.store(1, 1);
-        {
-            let ptr = stack.frames.last().unwrap().ptr;
-            assert_eq!(
-                ptr,
-                stack.frames.last_mut().unwrap().operands[4..].as_mut_ptr()
-            );
-        }
-        assert_eq!(
-            &stack.frames.last().unwrap().locals[4..8],
-            &[0xcu8, 0xdu8, 0xeu8, 0xfu8]
-        );
-        // push, ptr: 4 -> 8
-        stack.push(&super::NULL, super::PTR_SIZE);
-        {
-            let ptr = stack.frames.last().unwrap().ptr;
-            assert_eq!(
-                ptr,
-                stack.frames.last_mut().unwrap().operands[8..].as_mut_ptr()
-            );
-        }
-        assert_eq!(&stack.frames.last().unwrap().operands[4..8], &[0, 0, 0, 0]);
-        // pop_w, ptr: 8 -> 0
-        stack.pop_w();
-        {
-            let ptr = stack.frames.last().unwrap().ptr;
-            assert_eq!(
-                ptr,
-                stack.frames.last_mut().unwrap().operands[..].as_mut_ptr()
-            );
-        }
+        thisclass = thisclass.superclass.as_ref().unwrap();
     }
+    false
 }

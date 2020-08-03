@@ -1,24 +1,14 @@
 pub mod thread;
 
 use self::thread::ThreadContext;
-use crate::bytecode::{atom::*, constant_pool::ConstantItem, *};
-use crate::mem::{klass::*, metaspace::*, stack::*, *};
+use crate::mem::{heap::Heap, klass::*, metaspace::*, stack::*, *};
+use crate::{
+    bytecode,
+    bytecode::{atom::*, constant_pool::ConstantItem},
+};
 use std::sync::Arc;
 
 use log::trace;
-
-pub enum Return {
-    Word(Slot),
-    DWord(WideSlot),
-    Void,
-}
-
-pub struct JavaError {
-    // TODO exception class
-    pub message: String,
-    pub line: i32,
-    pub throwable: String,
-}
 
 macro_rules! math_bi {
     ($l: tt, $r: tt, $op: tt) => {
@@ -34,11 +24,12 @@ macro_rules! math_un {
 
 pub fn execute(context: &mut ThreadContext) {
     while context.stack.has_next(context.pc) {
-        let instruction = {
-            let frame = context.stack.frame();
-            frame.dump(context.pc);
-            context.stack.code_at(context.pc)
-        };
+        // handle_exception
+        if context.exception_pending {
+            handle_exception(context);
+        }
+        let instruction = context.stack.code_at(context.pc);
+        context.stack.dump(context.pc);
         match instruction {
             // nop
             0x00 => {
@@ -46,46 +37,45 @@ pub fn execute(context: &mut ThreadContext) {
             }
             // aconst_null
             0x01 => {
-                context.stack.push(&NULL, PTR_SIZE);
+                context.stack.push(&NULL);
                 context.pc = context.pc + 1;
             }
             // iconst -1 ~ 5
             0x02..=0x08 => {
                 let opr = context.stack.code_at(context.pc) as i32 - 3;
-                context.stack.push(&opr.to_le_bytes(), PTR_SIZE);
+                context.stack.push(&opr.to_le_bytes());
                 context.pc = context.pc + 1;
             }
             // lconst 0 ~ 1
             0x09..=0x0a => {
                 let opr = context.stack.code_at(context.pc) as i64 - 9;
-                context.stack.push(&opr.to_le_bytes(), 2 * PTR_SIZE);
+                context.stack.push_w(&opr.to_le_bytes());
                 context.pc = context.pc + 1;
             }
             // fconst 0 ~ 2
             0x0b..=0x0d => {
                 let opr = context.stack.code_at(context.pc) as f32 - 11.0;
-                context.stack.push(&opr.to_le_bytes(), PTR_SIZE);
+                context.stack.push(&opr.to_le_bytes());
                 context.pc = context.pc + 1;
             }
             // dconst 0 ~ 1
             0x0e..=0x0f => {
                 let opr = context.stack.code_at(context.pc) as f64 - 14.0;
-                context.stack.push(&opr.to_le_bytes(), 2 * PTR_SIZE);
+                context.stack.push_w(&opr.to_le_bytes());
                 context.pc = context.pc + 1;
             }
             // bipush
             0x10 => {
-                context.stack.push(
-                    &(context.stack.code_at(context.pc + 1) as i32).to_le_bytes(),
-                    PTR_SIZE,
-                );
+                context
+                    .stack
+                    .push(&(context.stack.code_at(context.pc + 1) as i32).to_le_bytes());
                 context.pc = context.pc + 2;
             }
             // sipush
             0x11 => {
                 let opr = (context.stack.code_at(context.pc + 1) as i32) << 8
                     | (context.stack.code_at(context.pc + 2) as i32);
-                context.stack.push(&opr.to_le_bytes(), PTR_SIZE);
+                context.stack.push(&opr.to_le_bytes());
                 context.pc = context.pc + 3;
             }
             // ldc
@@ -99,9 +89,9 @@ pub fn execute(context: &mut ThreadContext) {
                     ConstantItem::Float(f) => f.to_le_bytes(),
                     ConstantItem::Integer(i) => i.to_le_bytes(),
                     // TODO String
-                    _ => panic!("Illegal class file"),
+                    _ => panic!(""),
                 };
-                context.stack.push(&v, PTR_SIZE);
+                context.stack.push(&v);
                 context.pc = context.pc + 2;
             }
             // ldc2w
@@ -111,9 +101,9 @@ pub fn execute(context: &mut ThreadContext) {
                 let v = match context.stack.class().constant_pool.get(opr) {
                     ConstantItem::Double(d) => d.to_le_bytes(),
                     ConstantItem::Long(l) => l.to_le_bytes(),
-                    _ => panic!("Illegal class file"),
+                    _ => panic!(""),
                 };
-                context.stack.push(&v, 2 * PTR_SIZE);
+                context.stack.push_w(&v);
                 context.pc = context.pc + 3;
             }
             // iload/fload
@@ -162,21 +152,25 @@ pub fn execute(context: &mut ThreadContext) {
             0x2e => {
                 let array_idx = u32::from_le_bytes(context.stack.pop()) as usize;
                 let arrayref = u32::from_le_bytes(context.stack.pop()) as usize;
-                let current = context.stack.mut_frame();
-                let heap_ptr = jvm_heap!().base;
+                // let current = context.stack.mut_frame();
                 unsafe {
-                    let header_ptr = heap_ptr.add(arrayref);
-                    let header = ArrayHeader::from_vm_raw(header_ptr);
-                    // TODO
+                    let header = ArrayHeader::from_vm_raw(Heap::ptr(arrayref));
                     if array_idx >= header.size as usize {
-                        panic!("ArrayIndexOutOfBoundsException");
+                        context
+                            .stack
+                            .update(context.stack.operands().add(2 * PTR_SIZE));
+                        throw_vm_exception(context, "java/lang/ArrayIndexOutOfBoundsException");
+                        continue;
                     }
+                    // FIXME heap -> stack
                     let offset = (&*header.klass).len * array_idx;
-                    current.ptr.copy_from(
-                        heap_ptr.add(arrayref + ARRAY_HEADER_LEN + offset),
+                    context.stack.operands().copy_from(
+                        Heap::ptr(arrayref + ARRAY_HEADER_LEN + offset),
                         (&*header.klass).len,
                     );
-                    current.ptr = current.ptr.add((&*header.klass).len);
+                    context
+                        .stack
+                        .update(context.stack.operands().add((&*header.klass).len));
                 }
                 context.pc = context.pc + 1;
             }
@@ -227,18 +221,15 @@ pub fn execute(context: &mut ThreadContext) {
                 let v = context.stack.pop();
                 let array_idx = u32::from_le_bytes(context.stack.pop()) as usize;
                 let arrayref = u32::from_le_bytes(context.stack.pop()) as usize;
-                let current = context.stack.mut_frame();
-                let heap_ptr = jvm_heap!().base;
                 unsafe {
-                    let header_ptr = heap_ptr.add(arrayref);
-                    let header = ArrayHeader::from_vm_raw(header_ptr);
-                    // TODO
+                    let header = ArrayHeader::from_vm_raw(Heap::ptr(arrayref));
                     if array_idx >= header.size as usize {
-                        panic!("ArrayIndexOutOfBoundsException");
+                        context.stack.upward(3);
+                        throw_vm_exception(context, "java/lang/ArrayIndexOutOfBoundsException");
+                        continue;
                     }
                     let offset = (&*header.klass).len * array_idx;
-                    heap_ptr
-                        .add(arrayref + ARRAY_HEADER_LEN + offset)
+                    Heap::ptr(arrayref + ARRAY_HEADER_LEN + offset)
                         .copy_from(v.as_ptr(), (&*header.klass).len);
                 }
                 context.pc = context.pc + 1;
@@ -255,12 +246,13 @@ pub fn execute(context: &mut ThreadContext) {
             }
             // dup
             0x59 => {
-                let current = context.stack.mut_frame();
                 unsafe {
-                    let dup = current.ptr.sub(PTR_SIZE);
-                    current.ptr.copy_from(dup, PTR_SIZE);
-                    current.ptr = current.ptr.add(PTR_SIZE);
+                    context
+                        .stack
+                        .operands()
+                        .copy_from(context.stack.operands().sub(PTR_SIZE), PTR_SIZE);
                 }
+                context.stack.upward(1);
                 context.pc = context.pc + 1;
             }
             // i/l/f/d +-*/%<<>>>>>
@@ -327,7 +319,7 @@ pub fn execute(context: &mut ThreadContext) {
                 let index = context.stack.code_at(context.pc + 1) as usize;
                 let cst = context.stack.code_at(context.pc + 2) as i32;
                 let new = i32::from_le_bytes(context.stack.get(index)) + cst;
-                context.stack.set(index, new.to_le_bytes());
+                context.stack.set(index, &new.to_le_bytes());
                 context.pc = context.pc + 3;
             }
             // i2l,i2f,i2d,l2i,l2f,l2d,f2i,f2l,f2d,d2i,d2l,d2f,i2b,i2c,i2s
@@ -377,7 +369,7 @@ pub fn execute(context: &mut ThreadContext) {
             }
             // ireturn/lreturn/freturn/dreturn/areturn/return
             0xac..=0xb1 => {
-                context.pc = context.stack.backtrack();
+                context.pc = context.stack.return_normal();
             }
             // getstatic
             0xb2 => {
@@ -386,29 +378,30 @@ pub fn execute(context: &mut ThreadContext) {
                 let class = unsafe { context.stack.class_ptr().as_ref() }
                     .expect("stack_class_pointer_null");
                 let (c, (f, t)) = class.constant_pool.get_javaref(field_idx);
-                // TODO load class `c`, push `f` to operands according to the type `t`
-                let (klass, initialized) = class_arena!()
-                    .load_class(c, context)
-                    .expect("ClassNotFoundException");
+                let found = class_arena!().load_class(c, context);
+                if found.is_err() {
+                    throw_vm_exception(context, "java/lang/ClassNotFoundException");
+                    continue;
+                }
+                let (klass, initialized) = found.unwrap();
                 if !initialized {
                     continue;
                 }
                 if let Some(ref field) = klass.bytecode.as_ref().unwrap().get_field(f, t) {
                     match &field.value.get() {
-                        None => panic!(""),
+                        None => {
+                            throw_vm_exception(context, "java/lang/IncompatibleClassChangeError");
+                            continue;
+                        }
                         Some(value) => match value {
-                            Value::DWord(_) => {
-                                context.stack.push(&Value::of_w(*value), 2 * PTR_SIZE)
-                            }
-                            _ => context.stack.push(&Value::of(*value), PTR_SIZE),
+                            Value::DWord(_) => context.stack.push_w(&Value::of_w(*value)),
+                            _ => context.stack.push(&Value::of(*value)),
                         },
                     }
+                    context.pc = context.pc + 3;
                 } else {
-                    // TODO
-                    // handle_exception();
-                    panic!("NoSuchFieldException");
+                    throw_vm_exception(context, "java/lang/NoSuchFieldError");
                 }
-                context.pc = context.pc + 3;
             }
             // putstatic
             0xb3 => {
@@ -416,10 +409,12 @@ pub fn execute(context: &mut ThreadContext) {
                     | context.stack.code_at(context.pc + 2) as U2;
                 let (c, (f, t)) = context.stack.class().constant_pool.get_javaref(field_idx);
                 let (c, f, t) = (c.to_string(), f.to_string(), t.to_string());
-                // TODO load class `c`, push `f` to operands according to the type `t`
-                let (klass, initialized) = class_arena!()
-                    .load_class(&c, context)
-                    .expect("ClassNotFoundException");
+                let found = class_arena!().load_class(&c, context);
+                if found.is_err() {
+                    throw_vm_exception(context, "java/lang/ClassNotFoundException");
+                    continue;
+                }
+                let (klass, initialized) = found.unwrap();
                 if !initialized {
                     continue;
                 }
@@ -428,11 +423,10 @@ pub fn execute(context: &mut ThreadContext) {
                         "D" | "J" => Some(Value::eval_w(context.stack.pop_w())),
                         _ => Some(Value::eval(context.stack.pop(), &t)),
                     });
+                    context.pc = context.pc + 3;
                 } else {
-                    // TODO
-                    panic!("NoSuchFieldException");
+                    throw_vm_exception(context, "java/lang/NoSuchFieldError");
                 }
-                context.pc = context.pc + 3;
             }
             // getfield
             0xb4 => {
@@ -440,30 +434,29 @@ pub fn execute(context: &mut ThreadContext) {
                     | context.stack.code_at(context.pc + 2) as U2;
                 let (c, (f, t)) = context.stack.class().constant_pool.get_javaref(field_idx);
                 let (c, f, t) = (c.to_string(), f.to_string(), t.to_string());
-                let klass = class_arena!()
-                    .load_class(&c, context)
-                    .expect("ClassNotFoundException")
-                    .0;
+                let found = class_arena!().load_class(&c, context);
+                if found.is_err() {
+                    throw_vm_exception(context, "java/lang/ClassNotFoundException");
+                    continue;
+                }
+                let klass = found.unwrap().0;
                 let objref = context.stack.pop();
                 if objref == NULL {
-                    panic!("NullPointerException");
+                    throw_vm_exception(context, "java/lang/NullPointerException");
+                    continue;
                 }
-                let objref = u32::from_le_bytes(objref);
-                let (offset, len) = klass
-                    .layout
-                    .get(&(c.as_ref(), f.as_ref(), t.as_ref()))
-                    .expect("NoSuchFieldException");
-
-                let current = context.stack.mut_frame();
-                let heap_ptr = jvm_heap!().base;
+                let objref = u32::from_le_bytes(objref) as usize;
+                let found = klass.layout.get(&(c.as_ref(), f.as_ref(), t.as_ref()));
+                if found.is_none() {
+                    throw_vm_exception(context, "java/lang/NoSuchFieldError");
+                    continue;
+                }
+                // FIXME heap -> stack
+                let (offset, len) = found.unwrap();
                 unsafe {
-                    let target = heap_ptr.add(objref as usize + OBJ_HEADER_LEN + *offset);
-                    current.ptr.copy_from(target, *len);
-                    if *len <= PTR_SIZE {
-                        current.ptr = current.ptr.add(PTR_SIZE);
-                    } else {
-                        current.ptr = current.ptr.add(2 * PTR_SIZE);
-                    }
+                    let target = Heap::ptr(objref + OBJ_HEADER_LEN + *offset);
+                    context.stack.operands().copy_from(target, *len);
+                    context.stack.upward(*len / PTR_SIZE);
                 }
                 context.pc = context.pc + 3;
             }
@@ -473,139 +466,41 @@ pub fn execute(context: &mut ThreadContext) {
                     | context.stack.code_at(context.pc + 2) as U2;
                 let (c, (f, t)) = context.stack.class().constant_pool.get_javaref(field_idx);
                 let (c, f, t) = (c.to_string(), f.to_string(), t.to_string());
-                // TODO load class `c`, push `f` to operands according to the type `t`
-                let klass = class_arena!()
-                    .load_class(&c, context)
-                    .expect("ClassNotFoundException")
-                    .0;
+                let found = class_arena!().load_class(&c, context);
+                if found.is_err() {
+                    throw_vm_exception(context, "java/lang/ClassNotFoundException");
+                    continue;
+                }
+                let klass = found.unwrap().0;
                 let objref = context.stack.pop();
                 if objref == NULL {
-                    // TODO
-                    panic!("NullPointerException");
+                    context.stack.upward(PTR_SIZE);
+                    throw_vm_exception(context, "java/lang/NullPointerException");
+                    continue;
                 }
-                let objref = u32::from_le_bytes(objref);
-                // TODO
-                let (offset, len) = klass
-                    .layout
-                    .get(&(c.as_ref(), f.as_ref(), t.as_ref()))
-                    .expect("NoSuchFieldException");
-                let current = context.stack.mut_frame();
-                let heap_ptr = jvm_heap!().base;
+                let objref = u32::from_le_bytes(objref) as usize;
+                let found = klass.layout.get(&(c.as_ref(), f.as_ref(), t.as_ref()));
+                if found.is_none() {
+                    throw_vm_exception(context, "java/lang/NoSuchFieldError");
+                    continue;
+                }
+                // FIXME stack -> heap
+                let (offset, len) = found.unwrap();
                 unsafe {
-                    let target = heap_ptr.add(objref as usize + OBJ_HEADER_LEN + *offset);
-                    if *len <= PTR_SIZE {
-                        current.ptr = current.ptr.sub(PTR_SIZE)
-                    } else {
-                        current.ptr = current.ptr.sub(2 * PTR_SIZE)
-                    }
-                    target.copy_from(current.ptr, *len);
+                    let target = Heap::ptr(objref + OBJ_HEADER_LEN + *offset);
+                    context.stack.downward(*len / PTR_SIZE);
+                    target.copy_from(context.stack.operands(), *len);
                 }
                 context.pc = context.pc + 3;
             }
             // invokevirtual
-            0xb6 => {
-                let method_idx = (context.stack.code_at(context.pc + 1) as U2) << 8
-                    | context.stack.code_at(context.pc + 2) as U2;
-                let class = unsafe { context.stack.class_ptr().as_ref() }
-                    .expect("stack_class_pointer_null");
-                let (_, (m, t)) = class.constant_pool.get_javaref(method_idx);
-                let addr = u32::from_le_bytes(context.stack.top());
-                let heap_ptr = jvm_heap!().base;
-                let klass = unsafe {
-                    let obj_header = ObjectHeader::from_vm_raw(heap_ptr.add(addr as usize));
-                    obj_header.klass.as_ref().expect("obj_klass_pointer_null")
-                };
-                if let Some(method_ref) = klass.get_method_in_vtable(m, t) {
-                    let new_frame = JavaFrame::new((*method_ref).0, (*method_ref).1);
-                    context.pc = context.stack.invoke(new_frame, context.pc + 3);
-                } else if let Some(method) = klass.bytecode.as_ref().unwrap().get_method(m, t) {
-                    if !method.is_final() {
-                        panic!("ClassVerifyError");
-                    }
-                    let new_frame = JavaFrame::new(
-                        Arc::as_ptr(&klass.bytecode.as_ref().unwrap()),
-                        Arc::as_ptr(&method),
-                    );
-                    context.pc = context.stack.invoke(new_frame, context.pc + 3);
-                } else {
-                    panic!("NoSuchMethodError");
-                }
-            }
+            0xb6 => invoke_virtual(context),
             // invokespecial
-            0xb7 => {
-                let method_idx = (context.stack.code_at(context.pc + 1) as U2) << 8
-                    | context.stack.code_at(context.pc + 2) as U2;
-                let class = unsafe { context.stack.class_ptr().as_ref() }
-                    .expect("stack_klass_pointer_null");
-                let (c, (m, t)) = class.constant_pool.get_javaref(method_idx);
-                // TODO
-                let klass = class_arena!()
-                    .load_class(c, context)
-                    .expect("ClassNotFoundException")
-                    .0;
-                if let Some(method) = klass.bytecode.as_ref().unwrap().get_method(m, t) {
-                    let new_frame = JavaFrame::new(
-                        Arc::as_ptr(&klass.bytecode.as_ref().unwrap()),
-                        Arc::as_ptr(&method),
-                    );
-                    context.pc = context.stack.invoke(new_frame, context.pc + 3);
-                } else {
-                    // TODO
-                    panic!("NoSuchMethodException");
-                }
-            }
+            0xb7 => invoke_special(context),
             // invokestatic
-            0xb8 => {
-                let method_idx = (context.stack.code_at(context.pc + 1) as U2) << 8
-                    | context.stack.code_at(context.pc + 2) as U2;
-                let class = unsafe { context.stack.class_ptr().as_ref() }
-                    .expect("stack_klass_pointer_null");
-                let (c, (m, t)) = class.constant_pool.get_javaref(method_idx);
-                let (klass, initialized) = class_arena!()
-                    .load_class(c, context)
-                    .expect("ClassNotFoundException");
-                if !initialized {
-                    continue;
-                }
-                if let Some(method) = klass.bytecode.as_ref().unwrap().get_method(m, t) {
-                    // TODO
-                    if !method.is_static() {
-                        panic!("");
-                    }
-                    let new_frame = JavaFrame::new(
-                        Arc::as_ptr(&klass.bytecode.as_ref().unwrap()),
-                        Arc::as_ptr(&method),
-                    );
-                    context.pc = context.stack.invoke(new_frame, context.pc + 3);
-                } else {
-                    // TODO
-                    panic!("NoSuchMethodException");
-                }
-            }
+            0xb8 => invoke_static(context),
             // invokeinterface
-            0xb9 => {
-                let method_idx = (context.stack.code_at(context.pc + 1) as U2) << 8
-                    | context.stack.code_at(context.pc + 2) as U2;
-                let (c, (m, t)) = context.stack.class().constant_pool.get_javaref(method_idx);
-                let addr = u32::from_le_bytes(context.stack.top());
-                let heap_ptr = jvm_heap!().base;
-                let klass = unsafe {
-                    let obj_header = ObjectHeader::from_vm_raw(heap_ptr.add(addr as usize));
-                    obj_header.klass.as_ref().expect("klass_pointer_null")
-                };
-                if let Some(method) = klass.bytecode.as_ref().unwrap().get_method(m, t) {
-                    let new_frame = JavaFrame::new(
-                        Arc::as_ptr(&klass.bytecode.as_ref().unwrap()),
-                        Arc::as_ptr(&method),
-                    );
-                    context.pc = context.stack.invoke(new_frame, context.pc + 5);
-                } else if let Some(method_ref) = klass.get_method_in_itable(c, m, t) {
-                    let new_frame = JavaFrame::new((*method_ref).0, (*method_ref).1);
-                    context.pc = context.stack.invoke(new_frame, context.pc + 5);
-                } else {
-                    panic!("NoSuchMethodError");
-                }
-            }
+            0xb9 => invoke_interface(context),
             // new
             0xbb => {
                 let class_index = (context.stack.code_at(context.pc + 1) as U2) << 8
@@ -615,17 +510,19 @@ pub fn execute(context: &mut ThreadContext) {
                     .class()
                     .constant_pool
                     .get_str(class_index)
-                    .to_string();
-                // TODO
-                let (klass, initialized) = class_arena!()
-                    .load_class(&class_name, context)
-                    .expect("ClassNotFoundException");
+                    .to_owned();
+                let found = class_arena!().load_class(&class_name, context);
+                if found.is_err() {
+                    throw_vm_exception(context, "java/lang/ClassNotFoundException");
+                    continue;
+                }
+                let (klass, initialized) = found.unwrap();
                 if !initialized {
                     continue;
                 }
-                let obj = jvm_heap!().allocate_object(&klass);
+                let obj = Heap::allocate_object(&klass);
                 let v = obj.to_le_bytes();
-                context.stack.push(&v, PTR_SIZE);
+                context.stack.push(&v);
                 trace!("allocate object, addr: {}", obj);
                 context.pc = context.pc + 3;
             }
@@ -644,11 +541,11 @@ pub fn execute(context: &mut ThreadContext) {
                 };
                 let (klass, _) = class_arena!()
                     .load_class(atype, context)
-                    .expect("PRIMITIVE_TYPES_ARRAY");
+                    .expect("primitive_types_array");
                 let size = u32::from_le_bytes(context.stack.pop());
-                let array = jvm_heap!().allocate_array(&klass, size);
+                let array = Heap::allocate_array(&klass, size);
                 let v = array.to_le_bytes();
-                context.stack.push(&v, PTR_SIZE);
+                context.stack.push(&v);
                 trace!("allocate array {}, addr:{}, size:{}", atype, array, size);
                 context.pc = context.pc + 2;
             }
@@ -658,17 +555,19 @@ pub fn execute(context: &mut ThreadContext) {
                     | context.stack.code_at(context.pc + 2) as U2;
                 let class_name =
                     "[".to_owned() + context.stack.class().constant_pool.get_str(class_index);
-                // TODO
-                let (klass, initialized) = class_arena!()
-                    .load_class(&class_name, context)
-                    .expect("ClassNotFoundException");
+                let found = class_arena!().load_class(&class_name, context);
+                if found.is_err() {
+                    throw_vm_exception(context, "java/lang/ClassNotFoundException");
+                    continue;
+                }
+                let (klass, initialized) = found.unwrap();
                 if !initialized {
                     continue;
                 }
                 let size = u32::from_le_bytes(context.stack.pop());
-                let array = jvm_heap!().allocate_array(&klass, size);
+                let array = Heap::allocate_array(&klass, size);
                 let v = array.to_le_bytes();
-                context.stack.push(&v, PTR_SIZE);
+                context.stack.push(&v);
                 trace!(
                     "allocate array {}, addr:{}, size:{}",
                     class_name,
@@ -685,9 +584,157 @@ pub fn execute(context: &mut ThreadContext) {
     }
 }
 
-// TODO
-fn handle_exception(stack: &mut JavaStack, throwable: String, pc: usize) -> usize {
-    pc
+fn invoke_virtual(context: &mut ThreadContext) {
+    let method_idx = (context.stack.code_at(context.pc + 1) as U2) << 8
+        | context.stack.code_at(context.pc + 2) as U2;
+    let (_, (m, t)) = context.stack.class().constant_pool.get_javaref(method_idx);
+    // 0 for indicating non-static method
+    let (_, slots, _) = bytecode::resolve_method_descriptor(t, 0);
+
+    let addr = *context.stack.top_n(slots);
+    if addr == NULL {
+        throw_vm_exception(context, "java/lang/NullPointerException");
+        return;
+    }
+    let obj = ObjectHeader::from_vm_raw(Heap::ptr(u32::from_le_bytes(addr) as usize));
+    let klass = unsafe { obj.klass.as_ref() }.expect("obj_klass_pointer_null");
+    if let Some(method) = klass.get_method_in_vtable(m, t) {
+        context.pc = context
+            .stack
+            .invoke((*method).0, (*method).1, context.pc + 3, slots);
+        return;
+    }
+    if let Some(method) = klass.bytecode.as_ref().unwrap().get_method(m, t) {
+        if !method.is_final() {
+            throw_vm_exception(context, "java/lang/IncompatibleClassChangeError");
+            return;
+        }
+        let class = Arc::as_ptr(&klass.bytecode.as_ref().unwrap());
+        let method = Arc::as_ptr(&method);
+        context.pc = context.stack.invoke(class, method, context.pc + 3, slots);
+        return;
+    }
+    throw_vm_exception(context, "java/lang/NoSuchMethodError");
+}
+
+fn invoke_interface(context: &mut ThreadContext) {
+    let method_idx = (context.stack.code_at(context.pc + 1) as U2) << 8
+        | context.stack.code_at(context.pc + 2) as U2;
+    let (c, (m, t)) = context.stack.class().constant_pool.get_javaref(method_idx);
+    let (_, slots, _) = bytecode::resolve_method_descriptor(t, 0);
+    let addr = *context.stack.top_n(slots);
+    if addr == NULL {
+        throw_vm_exception(context, "java/lang/NullPointerException");
+        return;
+    }
+    let addr = u32::from_le_bytes(addr);
+    let obj = ObjectHeader::from_vm_raw(Heap::ptr(addr as usize));
+    let klass = unsafe { obj.klass.as_ref() }.expect("obj_klass_pointer_null");
+    if let Some(method) = klass.get_method_in_itable(c, m, t) {
+        context.pc = context
+            .stack
+            .invoke((*method).0, (*method).1, context.pc + 5, slots);
+        return;
+    }
+    throw_vm_exception(context, "java/lang/NoSuchMethodError");
+}
+
+fn invoke_static(context: &mut ThreadContext) {
+    let method_idx = (context.stack.code_at(context.pc + 1) as U2) << 8
+        | context.stack.code_at(context.pc + 2) as U2;
+    let class = unsafe { context.stack.class_ptr().as_ref() }.expect("class_pointer_null");
+    let (c, (m, t)) = class.constant_pool.get_javaref(method_idx);
+    let found = class_arena!().load_class(c, context);
+    if found.is_err() {
+        throw_vm_exception(context, "java/lang/ClassNotFoundException");
+        return;
+    }
+    let (klass, initialized) = found.unwrap();
+    if !initialized {
+        return;
+    }
+    let method = klass.bytecode.as_ref().unwrap().get_method(m, t);
+    if method.is_none() {
+        throw_vm_exception(context, "java/lang/NoSuchMethodError");
+        return;
+    }
+    let method = method.unwrap();
+    if !method.is_static() {
+        throw_vm_exception(context, "java/lang/IncompatibleClassChangeError");
+        return;
+    }
+    let (_, desc, access_flag) = method.get_name_and_descriptor();
+    let (_, slots, _) = bytecode::resolve_method_descriptor(desc, access_flag);
+    let class = Arc::as_ptr(&klass.bytecode.as_ref().unwrap());
+    let method = Arc::as_ptr(&method);
+    context.pc = context.stack.invoke(class, method, context.pc + 3, slots);
+}
+
+fn invoke_special(context: &mut ThreadContext) {
+    let method_idx = (context.stack.code_at(context.pc + 1) as U2) << 8
+        | context.stack.code_at(context.pc + 2) as U2;
+    let class = unsafe { context.stack.class_ptr().as_ref() }.expect("class_pointer_null");
+    let (c, (m, t)) = class.constant_pool.get_javaref(method_idx);
+    let found = class_arena!().load_class(c, context);
+    if found.is_err() {
+        throw_vm_exception(context, "java/lang/ClassNotFoundException");
+        return;
+    }
+    let (klass, initialized) = found.unwrap();
+    // redundant check
+    if !initialized {
+        return;
+    }
+    // TODO subclass check
+    let method = klass.bytecode.as_ref().unwrap().get_method(m, t);
+    if method.is_none() {
+        throw_vm_exception(context, "java/lang/NoSuchMethodError");
+        return;
+    }
+    let method = method.unwrap();
+    let (_, desc, access_flag) = method.get_name_and_descriptor();
+    let (_, slots, _) = bytecode::resolve_method_descriptor(desc, access_flag);
+    let class = Arc::as_ptr(&klass.bytecode.as_ref().unwrap());
+    let method = Arc::as_ptr(&method);
+    context.pc = context.stack.invoke(class, method, context.pc + 3, slots);
+}
+
+fn throw_vm_exception(context: &mut ThreadContext, error_class: &str) {
+    let (error, initialized) = class_arena!()
+        .load_class(error_class, context)
+        .expect("jre_not_found");
+    if !initialized {
+        println!("{} not initialized, return", error_class);
+        return;
+    }
+    let exception = Heap::allocate_object(&error).to_le_bytes();
+    // FIXME stack resize?
+    context.stack.push(&exception);
+    context.exception_pending = true;
+    context.throwable_initialized = false;
+}
+
+fn handle_exception(context: &mut ThreadContext) {
+    println!("handle exception");
+    // FIXME args of throwable <init>
+    if !context.throwable_initialized {
+        // TODO init throwable
+        context.throwable_initialized = true;
+    }
+    if context.stack.is_empty() {
+        return;
+    }
+    let error_ref = Ref::from_le_bytes(*context.stack.top());
+    let header = ObjectHeader::from_vm_raw(Heap::ptr(error_ref as usize));
+    let error_klass = unsafe { &*header.klass };
+    match context.stack.match_exception_table(context.pc, error_klass) {
+        Some(pc) => {
+            context.pc = pc;
+            context.exception_pending = false;
+        }
+        None => context.pc = context.stack.fire_exception(),
+    }
+    println!("current pc {}", context.pc);
 }
 
 #[test]

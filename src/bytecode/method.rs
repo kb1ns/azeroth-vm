@@ -74,9 +74,7 @@ impl Method {
                         Arc::clone(attribute),
                     ));
                 }
-                _ => {
-                    continue;
-                }
+                _ => continue,
             }
         }
         return None;

@@ -203,14 +203,14 @@ impl Klass {
                 }
                 (klass.len, max)
             }
-            None => (0usize, 0usize),
+            None => (0, 0),
         };
         let mut len = std::cmp::min(len, size);
         let current = &*self.bytecode.as_ref().unwrap();
         for f in &current.fields {
-            if f.memory_size() > len % PTR_SIZE && len % PTR_SIZE != 0 {
-                len = len + PTR_SIZE - len % PTR_SIZE;
-            }
+            // if f.memory_size() > len % PTR_SIZE && len % PTR_SIZE != 0 {
+            //     len = len + PTR_SIZE - len % PTR_SIZE;
+            // }
             self.layout.insert(
                 RefKey::new(
                     current.get_name().to_string(),
@@ -221,9 +221,9 @@ impl Klass {
             );
             len = len + f.memory_size();
         }
-        if len % PTR_SIZE != 0 {
-            len = len + PTR_SIZE - len % PTR_SIZE;
-        }
+        // if len % PTR_SIZE != 0 {
+        //     len = len + PTR_SIZE - len % PTR_SIZE;
+        // }
         self.len = len;
     }
 }

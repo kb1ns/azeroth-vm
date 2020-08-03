@@ -1,6 +1,6 @@
 #![feature(weak_into_raw)]
 
-use azerothvm::{interpreter::thread::ThreadContext, mem::metaspace::CLASSES, mem::*, *};
+use azerothvm::{interpreter::thread::ThreadContext, mem::metaspace::CLASSES, *};
 use std::sync::Arc;
 
 fn main() {
@@ -18,18 +18,12 @@ fn main() {
                     args.parse_args_or_exit();
                 }
                 match std::env::var("JAVA_HOME") {
-                    Ok(home) => {
-                        start_vm(&main_class, &cp, &home);
-                    }
-                    Err(_) => {
-                        panic!("JAVA_HOME not set");
-                    }
+                    Ok(home) => start_vm(&main_class, &cp, &home),
+                    Err(_) => panic!("JAVA_HOME not set"),
                 }
             }
         }
-        Err(_) => {
-            panic!("can't read file");
-        }
+        Err(_) => panic!("can't read file"),
     }
 }
 
@@ -73,11 +67,7 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
     let user_paths = resolve_user_classpath(user_classpath);
     mem::metaspace::ClassArena::init(user_paths, system_paths);
     mem::heap::Heap::init(10 * 1024 * 1024, 1024 * 1024, 1024 * 1024);
-    // TODO GC thread
-    let mut main_thread_context = ThreadContext {
-        pc: 0,
-        stack: mem::stack::JavaStack::new(),
-    };
+    let mut main_thread_context = ThreadContext::new();
     let entry_class = match class_arena!().load_class(class_name, &mut main_thread_context) {
         Err(no_class) => panic!(format!("ClassNotFoundException: {}", no_class)),
         Ok((class, _)) => class,
@@ -89,10 +79,11 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
         .unwrap()
         .get_method("main", "([Ljava/lang/String;)V")
         .expect("Main method not found");
-    let main_method = mem::stack::JavaFrame::new(
+    main_thread_context.stack.invoke(
         Arc::as_ptr(&entry_class.bytecode.as_ref().unwrap()),
         Arc::as_ptr(&main_method),
+        0,
+        1,
     );
-    main_thread_context.stack.invoke(main_method, 0);
     interpreter::execute(&mut main_thread_context);
 }

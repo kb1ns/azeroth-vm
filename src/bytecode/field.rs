@@ -25,15 +25,10 @@ pub struct Field {
 }
 
 impl Field {
-    /// B = Z = 1 < C = S = 2 < I = F = L = [ = 4 < J = D = 8
     pub fn memory_size(&self) -> usize {
-        let ch = self.descriptor.chars().next().expect("");
-        match ch {
-            'B' | 'Z' => 1,
-            'C' | 'S' => 2,
-            'I' | 'F' | 'L' | '[' => 4,
-            'J' | 'D' => 8,
-            _ => panic!("Illegal descriptor"),
+        match self.descriptor.as_str() {
+            "J" | "D" => 8,
+            _ => 4,
         }
     }
 

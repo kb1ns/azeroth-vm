@@ -1,5 +1,6 @@
+use crate::jvm_heap;
 use crate::mem::{
-    klass::{Klass, ObjectHeader, OBJ_HEADER_LEN, ArrayHeader, ARRAY_HEADER_LEN},
+    klass::{ArrayHeader, Klass, ObjectHeader, ARRAY_HEADER_LEN, OBJ_HEADER_LEN},
     *,
 };
 use std::sync::{Arc, RwLock};
@@ -49,9 +50,9 @@ impl Heap {
         }
     }
 
-    pub fn allocate_object(&self, klass: &Arc<Klass>) -> Ref {
+    pub fn allocate_object(klass: &Arc<Klass>) -> Ref {
         let instance_len = OBJ_HEADER_LEN + klass.len;
-        let mut eden = self.eden.write().unwrap();
+        let mut eden = jvm_heap!().eden.write().unwrap();
         // ensure enough space to allocate object
         if eden.offset + instance_len as u32 >= eden.limit {
             // TODO gc
@@ -59,7 +60,7 @@ impl Heap {
         }
         let obj_header = ObjectHeader::new(Arc::as_ptr(klass));
         unsafe {
-            let eden_ptr = self.base.add(eden.offset as usize);
+            let eden_ptr = jvm_heap!().base.add(eden.offset as usize);
             // copy object header
             let obj_header_ptr = obj_header.into_vm_raw().as_ptr();
             eden_ptr.copy_from(obj_header_ptr, OBJ_HEADER_LEN);
@@ -69,9 +70,9 @@ impl Heap {
         }
     }
 
-    pub fn allocate_array(&self, klass: &Arc<Klass>, size: u32) -> Ref {
+    pub fn allocate_array(klass: &Arc<Klass>, size: u32) -> Ref {
         let array_len = ARRAY_HEADER_LEN + klass.len * size as usize;
-        let mut eden = self.eden.write().unwrap();
+        let mut eden = jvm_heap!().eden.write().unwrap();
         // ensure enough space to allocate object
         if eden.offset + array_len as u32 >= eden.limit {
             // TODO gc
@@ -79,13 +80,17 @@ impl Heap {
         }
         let array_header = ArrayHeader::new(Arc::as_ptr(klass), size);
         unsafe {
-            let eden_ptr = self.base.add(eden.offset as usize);
+            let eden_ptr = jvm_heap!().base.add(eden.offset as usize);
             let array_header_ptr = array_header.into_vm_raw().as_ptr();
             eden_ptr.copy_from(array_header_ptr, ARRAY_HEADER_LEN);
             let addr = eden.offset;
             eden.offset = eden.offset + array_len as u32;
             addr
         }
+    }
+
+    pub fn ptr(offset: usize) -> *mut u8 {
+        unsafe { jvm_heap!().base.add(offset) }
     }
 }
 
@@ -122,9 +127,9 @@ mod test {
             vec![],
         );
         let klass = super::Arc::new(klass);
-        let obj0 = jvm_heap!().allocate_object(&klass);
+        let obj0 = super::Heap::allocate_object(&klass);
         assert_eq!(super::PTR_SIZE as u32, obj0);
-        let obj1 = jvm_heap!().allocate_object(&klass);
+        let obj1 = super::Heap::allocate_object(&klass);
         assert_eq!(
             super::OBJ_HEADER_LEN + klass.len + obj0 as usize,
             obj1 as usize
@@ -133,9 +138,6 @@ mod test {
         let obj0_ptr = unsafe { jvm_heap!().base.add(obj0 as usize) };
         let obj_header: super::ObjectHeader = super::klass::ObjectHeader::from_vm_raw(obj0_ptr);
         let java_lang_object_klass = unsafe { &*obj_header.klass };
-        assert_eq!(
-            "java/lang/Object",
-            java_lang_object_klass.bytecode.this_class_name
-        );
+        assert_eq!("java/lang/Object", java_lang_object_klass.name);
     }
 }
