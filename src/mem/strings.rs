@@ -1,14 +1,47 @@
-use std::collections::HashMap;
-use super::Ref;
+use crate::{
+    interpreter::thread::ThreadContext,
+    mem::{heap::Heap, metaspace::ClassArena, Ref},
+};
+use std::{collections::HashMap, sync::RwLock};
 
+pub struct Strings(RwLock<HashMap<String, Ref>>);
 
-pub type Strings = HashMap<String, Ref>;
+static mut STRINGS: Option<Strings> = None;
 
-pub static mut STRINGS: Strings = HashMap::with_capacity(4096);
+#[macro_export]
+macro_rules! strings {
+    () => {
+        unsafe {
+            match STRINGS {
+                Some(ref v) => v,
+                None => panic!("StringConstants not initialized"),
+            }
+        }
+    };
+}
 
 impl Strings {
+    pub fn init() {
+        unsafe {
+            STRINGS.replace(Strings(RwLock::new(HashMap::with_capacity(4096))));
+        }
+    }
 
-    pub fn get(string: &str) -> Ref {
-        0
+    pub fn get(constant: &str, context: &mut ThreadContext) -> Ref {
+        {
+            let constants = strings!().0.read().unwrap();
+            if constants.contains_key(constant) {
+                return *constants.get(constant).unwrap();
+            }
+        }
+        let mut constants = strings!().0.write().unwrap();
+        if constants.contains_key(constant) {
+            return *constants.get(constant).unwrap();
+        }
+        let (klass, _) =
+            ClassArena::load_class("java/lang/String", context).expect("jre_not_found");
+        let obj = Heap::allocate_object_directly(&klass);
+        constants.insert(constant.to_owned(), obj);
+        obj
     }
 }

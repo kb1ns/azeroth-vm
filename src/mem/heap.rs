@@ -51,23 +51,34 @@ impl Heap {
     }
 
     pub fn allocate_object(klass: &Arc<Klass>) -> Ref {
+        if let Some(addr) = Self::allocate_object_in_region(klass, &jvm_heap!().eden) {
+            return addr;
+        } else if let Some(addr) = Self::allocate_object_in_region(klass, &jvm_heap!().oldgen) {
+            return addr;
+        }
+        panic!("OutOfMemoryError");
+    }
+
+    pub fn allocate_object_directly(klass: &Arc<Klass>) -> Ref {
+        if let Some(addr) = Self::allocate_object_in_region(klass, &jvm_heap!().oldgen) {
+            return addr;
+        }
+        panic!("OutOfMemoryError");
+    }
+
+    fn allocate_object_in_region(klass: &Arc<Klass>, region: &Arc<RwLock<Region>>) -> Option<Ref> {
+        let mut region = region.write().unwrap();
         let instance_len = OBJ_HEADER_LEN + klass.len;
-        let mut eden = jvm_heap!().eden.write().unwrap();
-        // ensure enough space to allocate object
-        if eden.offset + instance_len as u32 >= eden.limit {
-            // TODO gc
-            panic!("OutOfMemoryError");
+        if region.offset + instance_len as u32 >= region.limit {
+            return None;
         }
         let obj_header = ObjectHeader::new(Arc::as_ptr(klass));
-        unsafe {
-            let eden_ptr = jvm_heap!().base.add(eden.offset as usize);
-            // copy object header
-            let obj_header_ptr = obj_header.into_vm_raw().as_ptr();
-            eden_ptr.copy_from(obj_header_ptr, OBJ_HEADER_LEN);
-            let addr = eden.offset;
-            eden.offset = eden.offset + instance_len as u32;
-            addr
-        }
+        let obj_ptr = obj_header.into_vm_raw().as_ptr();
+        let free = Heap::ptr(region.offset as usize);
+        unsafe { free.copy_from(obj_ptr, OBJ_HEADER_LEN) };
+        let addr = region.offset;
+        region.offset = addr + instance_len as u32;
+        Some(addr)
     }
 
     pub fn allocate_array(klass: &Arc<Klass>, size: u32) -> Ref {
@@ -94,7 +105,7 @@ impl Heap {
     }
 }
 
-pub static mut HEAP: Option<Heap> = None;
+static mut HEAP: Option<Heap> = None;
 
 #[macro_export]
 macro_rules! jvm_heap {

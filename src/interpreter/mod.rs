@@ -1,11 +1,15 @@
 pub mod thread;
 
 use self::thread::ThreadContext;
-use crate::mem::{heap::Heap, klass::*, metaspace::*, stack::*, *};
 use crate::{
     bytecode,
     bytecode::{atom::*, constant_pool::ConstantItem},
+    mem::{heap::Heap, klass::*, metaspace::*, strings::Strings, *},
 };
+// use crate::{
+//     bytecode,
+//     bytecode::{atom::*, constant_pool::ConstantItem},
+// };
 use std::sync::Arc;
 
 use log::trace;
@@ -88,7 +92,13 @@ pub fn execute(context: &mut ThreadContext) {
                 {
                     ConstantItem::Float(f) => f.to_le_bytes(),
                     ConstantItem::Integer(i) => i.to_le_bytes(),
-                    // TODO String
+                    ConstantItem::String(r) => {
+                        let utf8 = context.stack.class().constant_pool.get(*r).clone();
+                        match utf8 {
+                            ConstantItem::UTF8(s) => Strings::get(&s, context).to_le_bytes(),
+                            _ => panic!(""),
+                        }
+                    }
                     _ => panic!(""),
                 };
                 context.stack.push(&v);
@@ -378,7 +388,7 @@ pub fn execute(context: &mut ThreadContext) {
                 let class = unsafe { context.stack.class_ptr().as_ref() }
                     .expect("stack_class_pointer_null");
                 let (c, (f, t)) = class.constant_pool.get_javaref(field_idx);
-                let found = class_arena!().load_class(c, context);
+                let found = ClassArena::load_class(c, context);
                 if found.is_err() {
                     throw_vm_exception(context, "java/lang/ClassNotFoundException");
                     continue;
@@ -409,7 +419,7 @@ pub fn execute(context: &mut ThreadContext) {
                     | context.stack.code_at(context.pc + 2) as U2;
                 let (c, (f, t)) = context.stack.class().constant_pool.get_javaref(field_idx);
                 let (c, f, t) = (c.to_string(), f.to_string(), t.to_string());
-                let found = class_arena!().load_class(&c, context);
+                let found = ClassArena::load_class(&c, context);
                 if found.is_err() {
                     throw_vm_exception(context, "java/lang/ClassNotFoundException");
                     continue;
@@ -434,7 +444,7 @@ pub fn execute(context: &mut ThreadContext) {
                     | context.stack.code_at(context.pc + 2) as U2;
                 let (c, (f, t)) = context.stack.class().constant_pool.get_javaref(field_idx);
                 let (c, f, t) = (c.to_string(), f.to_string(), t.to_string());
-                let found = class_arena!().load_class(&c, context);
+                let found = ClassArena::load_class(&c, context);
                 if found.is_err() {
                     throw_vm_exception(context, "java/lang/ClassNotFoundException");
                     continue;
@@ -466,7 +476,7 @@ pub fn execute(context: &mut ThreadContext) {
                     | context.stack.code_at(context.pc + 2) as U2;
                 let (c, (f, t)) = context.stack.class().constant_pool.get_javaref(field_idx);
                 let (c, f, t) = (c.to_string(), f.to_string(), t.to_string());
-                let found = class_arena!().load_class(&c, context);
+                let found = ClassArena::load_class(&c, context);
                 if found.is_err() {
                     throw_vm_exception(context, "java/lang/ClassNotFoundException");
                     continue;
@@ -511,7 +521,7 @@ pub fn execute(context: &mut ThreadContext) {
                     .constant_pool
                     .get_str(class_index)
                     .to_owned();
-                let found = class_arena!().load_class(&class_name, context);
+                let found = ClassArena::load_class(&class_name, context);
                 if found.is_err() {
                     throw_vm_exception(context, "java/lang/ClassNotFoundException");
                     continue;
@@ -539,9 +549,8 @@ pub fn execute(context: &mut ThreadContext) {
                     11 => "[J",
                     _ => unreachable!(),
                 };
-                let (klass, _) = class_arena!()
-                    .load_class(atype, context)
-                    .expect("primitive_types_array");
+                let (klass, _) =
+                    ClassArena::load_class(atype, context).expect("primitive_types_array");
                 let size = u32::from_le_bytes(context.stack.pop());
                 let array = Heap::allocate_array(&klass, size);
                 let v = array.to_le_bytes();
@@ -555,7 +564,7 @@ pub fn execute(context: &mut ThreadContext) {
                     | context.stack.code_at(context.pc + 2) as U2;
                 let class_name =
                     "[".to_owned() + context.stack.class().constant_pool.get_str(class_index);
-                let found = class_arena!().load_class(&class_name, context);
+                let found = ClassArena::load_class(&class_name, context);
                 if found.is_err() {
                     throw_vm_exception(context, "java/lang/ClassNotFoundException");
                     continue;
@@ -644,7 +653,7 @@ fn invoke_static(context: &mut ThreadContext) {
         | context.stack.code_at(context.pc + 2) as U2;
     let class = unsafe { context.stack.class_ptr().as_ref() }.expect("class_pointer_null");
     let (c, (m, t)) = class.constant_pool.get_javaref(method_idx);
-    let found = class_arena!().load_class(c, context);
+    let found = ClassArena::load_class(c, context);
     if found.is_err() {
         throw_vm_exception(context, "java/lang/ClassNotFoundException");
         return;
@@ -675,7 +684,7 @@ fn invoke_special(context: &mut ThreadContext) {
         | context.stack.code_at(context.pc + 2) as U2;
     let class = unsafe { context.stack.class_ptr().as_ref() }.expect("class_pointer_null");
     let (c, (m, t)) = class.constant_pool.get_javaref(method_idx);
-    let found = class_arena!().load_class(c, context);
+    let found = ClassArena::load_class(c, context);
     if found.is_err() {
         throw_vm_exception(context, "java/lang/ClassNotFoundException");
         return;
@@ -700,11 +709,8 @@ fn invoke_special(context: &mut ThreadContext) {
 }
 
 fn throw_vm_exception(context: &mut ThreadContext, error_class: &str) {
-    let (error, initialized) = class_arena!()
-        .load_class(error_class, context)
-        .expect("jre_not_found");
+    let (error, initialized) = ClassArena::load_class(error_class, context).expect("jre_not_found");
     if !initialized {
-        println!("{} not initialized, return", error_class);
         return;
     }
     let exception = Heap::allocate_object(&error).to_le_bytes();
@@ -715,7 +721,6 @@ fn throw_vm_exception(context: &mut ThreadContext, error_class: &str) {
 }
 
 fn handle_exception(context: &mut ThreadContext) {
-    println!("handle exception");
     // FIXME args of throwable <init>
     if !context.throwable_initialized {
         // TODO init throwable
@@ -734,7 +739,6 @@ fn handle_exception(context: &mut ThreadContext) {
         }
         None => context.pc = context.stack.fire_exception(),
     }
-    println!("current pc {}", context.pc);
 }
 
 #[test]

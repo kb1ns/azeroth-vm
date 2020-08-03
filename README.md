@@ -36,6 +36,7 @@ public class HelloWorld implements A {
         String[] sarray = new String[10];
         array[0] = 0xcafebabe;
         int tmp = array[0];
+        String hello = "Hello, World.";
     }
 
 

@@ -7,12 +7,11 @@ use crate::classpath::Classpath;
 use chashmap::CHashMap;
 use regex::Regex;
 
-#[macro_use]
 pub mod heap;
-#[macro_use]
 pub mod metaspace;
 pub mod klass;
 pub mod stack;
+pub mod strings;
 
 // pub const PTR_SIZE: usize = std::mem::size_of::<usize>();
 

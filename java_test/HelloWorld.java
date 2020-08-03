@@ -30,10 +30,9 @@ public class HelloWorld implements A {
         int[] array = new int[10];
         int[][] _2darray = new int[10][];
         String[] sarray = new String[10];
-        // test array_index_out_of_range
         array[0] = 0xcafebabe;
         int tmp = array[0];
-        // String hello = "Hello, World.";
+        String hello = "Hello, World.";
     }
 
 
