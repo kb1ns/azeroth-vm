@@ -57,18 +57,6 @@ impl ThreadGroup {
             Ok((class, _)) => class,
         };
         if init {
-            let clinit = class
-                .bytecode
-                .as_ref()
-                .unwrap()
-                .get_method("<clinit>", "()V")
-                .expect("Class initializing method not found");
-            context.stack.invoke(
-                Arc::as_ptr(&class.bytecode.as_ref().unwrap()),
-                Arc::as_ptr(&clinit),
-                0,
-                0,
-            );
             interpreter::execute(&mut context);
         }
         let method = class
