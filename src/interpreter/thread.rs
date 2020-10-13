@@ -1,16 +1,16 @@
-use crate::bytecode::{class::Class, method::Method};
 use crate::interpreter;
-use crate::mem::{heap::*, klass::*, metaspace::*, stack::*, *};
-use std::cell::{RefCell, RefMut};
+use crate::mem::{metaspace::*, stack::*, *};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
 use std::sync::atomic::AtomicU32;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::rc::Rc;
 
 pub struct ThreadGroup {
-    threads: Arc<Mutex<BTreeMap<u32, (Rc<RefCell<ThreadContext>>, Sender<u32>, Receiver<Vec<Ref>>)>>>,
+    threads:
+        Arc<Mutex<BTreeMap<u32, (Rc<RefCell<ThreadContext>>, Sender<u32>, Receiver<Vec<Ref>>)>>>,
 }
 
 static mut THREADS: Option<ThreadGroup> = None;
@@ -125,5 +125,10 @@ impl ThreadContext {
             rx: rx,
             tx: tx,
         }
+    }
+
+    pub fn roots(&self) -> Vec<Ref> {
+        // TODO
+        vec![]
     }
 }

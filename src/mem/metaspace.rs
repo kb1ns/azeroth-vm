@@ -1,5 +1,5 @@
 use crate::interpreter::thread::ThreadContext;
-use crate::mem::{klass::Klass, stack::*, *};
+use crate::mem::{klass::Klass, *};
 use log::trace;
 use std::sync::{Arc, Mutex};
 

@@ -28,6 +28,12 @@ macro_rules! math_un {
 
 pub fn execute(context: &mut ThreadContext) {
     while context.stack.has_next(context.pc) {
+        let pause = context.rx.try_recv();
+        if pause.is_ok() {
+            context.tx.send(context.roots()).unwrap();
+            // waiting signal
+            let _ = context.rx.recv().unwrap();
+        }
         // handle_exception
         if context.exception_pending {
             handle_exception(context);

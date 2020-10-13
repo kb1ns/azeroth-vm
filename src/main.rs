@@ -1,10 +1,8 @@
-#![feature(weak_into_raw)]
+// #![feature(weak_into_raw)]
 use azerothvm::{
-    interpreter,
     interpreter::thread::ThreadGroup,
     mem::{heap::Heap, metaspace::ClassArena, strings::Strings},
 };
-use std::sync::Arc;
 
 fn main() {
     match std::env::current_dir() {

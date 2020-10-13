@@ -15,9 +15,6 @@ pub fn init_gc() {
     });
 }
 
-fn mutate() {
-
-}
 
 pub fn young_gc() {
     
