@@ -4,13 +4,14 @@ use crate::mem::{heap::*, klass::*, metaspace::*, stack::*, *};
 use std::cell::{RefCell, RefMut};
 use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
+use std::rc::Rc;
 use std::sync::atomic::AtomicU32;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
-use std::rc::Rc;
 
 pub struct ThreadGroup {
-    threads: Arc<Mutex<BTreeMap<u32, (Rc<RefCell<ThreadContext>>, Sender<u32>, Receiver<Vec<Ref>>)>>>,
+    threads:
+        Arc<Mutex<BTreeMap<u32, (Rc<RefCell<ThreadContext>>, Sender<u32>, Receiver<Vec<Ref>>)>>>,
 }
 
 static mut THREADS: Option<ThreadGroup> = None;
@@ -39,7 +40,7 @@ impl ThreadGroup {
         }
     }
 
-    pub fn new_thread(class_name: &str, method_name: &str, method_descriptor: &str, init: bool) {
+    pub fn new_thread(class_name: &str, method_name: &str, method_descriptor: &str) {
         let context = {
             let mut threads = jvm_threads!().threads.lock().unwrap();
             let id = *threads.deref().keys().last().unwrap_or(&0);
@@ -56,21 +57,6 @@ impl ThreadGroup {
             Err(no_class) => panic!(format!("ClassNotFoundException: {}", no_class)),
             Ok((class, _)) => class,
         };
-        if init {
-            let clinit = class
-                .bytecode
-                .as_ref()
-                .unwrap()
-                .get_method("<clinit>", "()V")
-                .expect("Class initializing method not found");
-            context.stack.invoke(
-                Arc::as_ptr(&class.bytecode.as_ref().unwrap()),
-                Arc::as_ptr(&clinit),
-                0,
-                0,
-            );
-            interpreter::execute(&mut context);
-        }
         let method = class
             .bytecode
             .as_ref()

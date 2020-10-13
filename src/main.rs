@@ -72,5 +72,5 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
     Heap::init(10 * 1024 * 1024, 1024 * 1024, 1024 * 1024);
     Strings::init();
     ThreadGroup::init();
-    ThreadGroup::new_thread(class_name, "main", "([Ljava/lang/String;)V", true);
+    ThreadGroup::new_thread(class_name, "main", "([Ljava/lang/String;)V");
 }
