@@ -265,10 +265,10 @@ pub fn execute(context: &mut ThreadContext) {
                 context.stack.upward(1);
                 context.pc = context.pc + 1;
             }
-            // i/l/f/d +-*/%<<>>>>>
+            // i/l/f/d +,-,*,/,%,<<,>>,>>>
             0x60..=0x83 => {
-                let opr = context.stack.code_at(context.pc);
-                match opr {
+                let code = context.stack.code_at(context.pc);
+                match code {
                     0x60 => context.stack.bi_op(math_bi!(i32, i32, +)),
                     0x61 => context.stack.bi_op_w(math_bi!(i64, i64, +)),
                     0x62 => context.stack.bi_op(math_bi!(f32, f32, +)),
@@ -334,7 +334,52 @@ pub fn execute(context: &mut ThreadContext) {
             }
             // i2l,i2f,i2d,l2i,l2f,l2d,f2i,f2l,f2d,d2i,d2l,d2f,i2b,i2c,i2s
             0x85..=0x93 => {
-                // TODO
+                let code = context.stack.code_at(context.pc);
+                match code {
+                    // i2f, l2d, f2i, d2l, i2b, i2c, i2s
+                    0x86 | 0x8a | 0x8b | 0x8f | 0x91 | 0x92 | 0x93 => {}
+                    // i2l
+                    0x85 => {
+                        let v = i32::from_le_bytes(context.stack.pop());
+                        context.stack.push_w(&(v as i64).to_le_bytes());
+                    }
+                    // i2d
+                    0x87 => {
+                        let v = i32::from_le_bytes(context.stack.pop());
+                        context.stack.push_w(&(v as f64).to_le_bytes());
+                    }
+                    // l2i
+                    0x88 => {
+                        let v = i64::from_le_bytes(context.stack.pop_w());
+                        context.stack.push(&(v as i32).to_le_bytes());
+                    }
+                    // l2f
+                    0x89 => {
+                        let v = i64::from_le_bytes(context.stack.pop_w());
+                        context.stack.push(&(v as f32).to_le_bytes());
+                    }
+                    // f2l
+                    0x8c => {
+                        let v = f32::from_le_bytes(context.stack.pop());
+                        context.stack.push_w(&(v as i64).to_le_bytes());
+                    }
+                    // f2d
+                    0x8d => {
+                        let v = f32::from_le_bytes(context.stack.pop());
+                        context.stack.push_w(&(v as f64).to_le_bytes());
+                    }
+                    // d2i
+                    0x8e => {
+                        let v = f64::from_le_bytes(context.stack.pop_w());
+                        context.stack.push(&(v as i32).to_le_bytes());
+                    }
+                    // d2f
+                    0x90 => {
+                        let v = f64::from_le_bytes(context.stack.pop_w());
+                        context.stack.push(&(v as f32).to_le_bytes());
+                    }
+                    _ => unreachable!(),
+                }
                 context.pc = context.pc + 1;
             }
             // ifeq, ifne, iflt, ifge, ifgt, ifle
@@ -354,21 +399,44 @@ pub fn execute(context: &mut ThreadContext) {
                     context.pc = context.pc + 3;
                 }
             }
-            // if_icmpge
-            0xa2 => {
+            // if_icmp eq,ne,lt,ge,gt,le
+            0x9f..=0xa4 => {
                 let (v1, v2) = {
                     let v2 = i32::from_le_bytes(context.stack.pop());
                     let v1 = i32::from_le_bytes(context.stack.pop());
                     (v1, v2)
                 };
-                if v1 >= v2 {
-                    let offset = ((context.stack.code_at(context.pc + 1) as i16) << 8
-                        | context.stack.code_at(context.pc + 2) as i16)
-                        as isize;
-                    context.pc = (context.pc as isize + offset) as usize;
+                let code = context.stack.code_at(context.pc);
+                let offset = if code == 0x9f && v1 == v2
+                    || code == 0xa0 && v1 != v2
+                    || code == 0xa1 && v1 < v2
+                    || code == 0xa2 && v1 >= v2
+                    || code == 0xa3 && v1 > v2
+                    || code == 0xa4 && v1 <= v2
+                {
+                    ((context.stack.code_at(context.pc + 1) as i16) << 8
+                        | context.stack.code_at(context.pc + 2) as i16) as isize
                 } else {
-                    context.pc = context.pc + 3;
-                }
+                    3
+                };
+                context.pc = (context.pc as isize + offset) as usize;
+            }
+            // if_acmpeq, if_acmpne
+            0xa5 | 0xa6 => {
+                // TODO reference as u32
+                let (v1, v2) = {
+                    let v2 = Ref::from_le_bytes(context.stack.pop());
+                    let v1 = Ref::from_le_bytes(context.stack.pop());
+                    (v1, v2)
+                };
+                let code = context.stack.code_at(context.pc);
+                let offset = if code == 0xa5 && v1 == v2 || code == 0xa6 && v1 != v2 {
+                    ((context.stack.code_at(context.pc + 1) as i16) << 8
+                        | context.stack.code_at(context.pc + 2) as i16) as isize
+                } else {
+                    3
+                };
+                context.pc = (context.pc as isize + offset) as usize;
             }
             // goto
             0xa7 => {
@@ -584,6 +652,22 @@ pub fn execute(context: &mut ThreadContext) {
                     size
                 );
                 context.pc = context.pc + 3;
+            }
+            // arraylength
+            0xbe => {
+                let addr = context.stack.pop();
+                if addr == NULL {
+                    throw_vm_exception(context, "java/lang/NullPointerException");
+                    return;
+                }
+                let array = ArrayHeader::from_vm_raw(Heap::ptr(u32::from_le_bytes(addr) as usize));
+                context.stack.push(&array.size.to_le_bytes());
+                context.pc = context.pc + 1;
+            }
+            // athrow
+            0xbf => {
+                context.exception_pending = true;
+                context.throwable_initialized = true;
             }
             _ => panic!(format!(
                 "Instruction 0x{:2x?} not implemented yet.",

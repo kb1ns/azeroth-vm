@@ -1,7 +1,7 @@
 #![feature(weak_into_raw)]
 use azerothvm::{
     interpreter,
-    interpreter::thread::ThreadContext,
+    interpreter::thread::ThreadGroup,
     mem::{heap::Heap, metaspace::ClassArena, strings::Strings},
 };
 use std::sync::Arc;
@@ -69,39 +69,8 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
     let system_paths = resolve_system_classpath(java_home);
     let user_paths = resolve_user_classpath(user_classpath);
     ClassArena::init(user_paths, system_paths);
-    // TODO vm params
     Heap::init(10 * 1024 * 1024, 1024 * 1024, 1024 * 1024);
     Strings::init();
-
-    let mut main_thread_context = ThreadContext::new();
-    let entry_class = match ClassArena::load_class(class_name, &mut main_thread_context) {
-        Err(no_class) => panic!(format!("ClassNotFoundException: {}", no_class)),
-        Ok((class, _)) => class,
-    };
-    let clinit = entry_class
-        .bytecode
-        .as_ref()
-        .unwrap()
-        .get_method("<clinit>", "()V")
-        .expect("Class initializing method not found");
-    main_thread_context.stack.invoke(
-        Arc::as_ptr(&entry_class.bytecode.as_ref().unwrap()),
-        Arc::as_ptr(&clinit),
-        0,
-        0,
-    );
-    interpreter::execute(&mut main_thread_context);
-    let main_method = entry_class
-        .bytecode
-        .as_ref()
-        .unwrap()
-        .get_method("main", "([Ljava/lang/String;)V")
-        .expect("Main method not found");
-    main_thread_context.stack.invoke(
-        Arc::as_ptr(&entry_class.bytecode.as_ref().unwrap()),
-        Arc::as_ptr(&main_method),
-        0,
-        1,
-    );
-    interpreter::execute(&mut main_thread_context);
+    ThreadGroup::init();
+    ThreadGroup::new_thread(class_name, "main", "([Ljava/lang/String;)V", true);
 }

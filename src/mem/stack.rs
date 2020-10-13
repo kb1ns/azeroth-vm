@@ -1,11 +1,8 @@
 use crate::{
     bytecode,
-    bytecode::method::Method,
-    interpreter::thread::ThreadContext,
+    bytecode::{class::Class, method::Method},
     mem::{klass::*, *},
 };
-
-use std::{mem::transmute, ptr};
 
 const DEFAULT_STACK_LEN: usize = 128 * 1024;
 

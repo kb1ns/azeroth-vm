@@ -12,6 +12,7 @@ argparse = "0.2.2"
 chashmap = "2.2.0"
 base64 = "0.11.0"
 libloading = "0.5"
+lazy_static = "1.4.0"
 azeroth-jni = { package = "azeroth-jni", path = "./jni" }
 
 [lib]
