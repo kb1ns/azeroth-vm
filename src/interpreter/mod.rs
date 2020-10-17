@@ -4,12 +4,9 @@ use self::thread::ThreadContext;
 use crate::{
     bytecode,
     bytecode::{atom::*, constant_pool::ConstantItem},
+    gc,
     mem::{heap::Heap, klass::*, metaspace::*, strings::Strings, *},
 };
-// use crate::{
-//     bytecode,
-//     bytecode::{atom::*, constant_pool::ConstantItem},
-// };
 use std::sync::Arc;
 
 use log::trace;
@@ -105,6 +102,7 @@ pub fn execute(context: &mut ThreadContext) {
                             _ => panic!(""),
                         }
                     }
+                    // TODO
                     _ => panic!(""),
                 };
                 context.stack.push(&v);

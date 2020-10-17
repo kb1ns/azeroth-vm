@@ -1,7 +1,7 @@
 use crate::interpreter;
 use crate::mem::{metaspace::*, stack::*, *};
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::sync::atomic::AtomicU32;
@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 pub struct ThreadGroup {
     threads:
-        Arc<Mutex<BTreeMap<u32, (Rc<RefCell<ThreadContext>>, Sender<u32>, Receiver<Vec<Ref>>)>>>,
+        Arc<Mutex<BTreeMap<u32, (Rc<RefCell<ThreadContext>>, Sender<u32>, Receiver<HashSet<Ref>>)>>>,
 }
 
 static mut THREADS: Option<ThreadGroup> = None;
@@ -80,7 +80,7 @@ impl ThreadGroup {
         threads.deref_mut().remove(&id);
     }
 
-    pub fn collect_roots() -> Vec<Ref> {
+    pub fn collect_roots() -> HashSet<Ref> {
         let threads = jvm_threads!().threads.lock().unwrap();
         threads
             .deref()
@@ -90,7 +90,7 @@ impl ThreadGroup {
                 t.2.recv().unwrap()
             })
             .flatten()
-            .collect::<Vec<_>>()
+            .collect::<HashSet<_>>()
     }
 
     pub fn notify_all() {
@@ -110,11 +110,11 @@ pub struct ThreadContext {
     pub status: AtomicU32,
     pub id: u32,
     pub rx: Receiver<u32>,
-    pub tx: Sender<Vec<Ref>>,
+    pub tx: Sender<HashSet<Ref>>,
 }
 
 impl ThreadContext {
-    fn new(id: u32, rx: Receiver<u32>, tx: Sender<Vec<Ref>>) -> Self {
+    fn new(id: u32, rx: Receiver<u32>, tx: Sender<HashSet<Ref>>) -> Self {
         Self {
             pc: 0,
             stack: JavaStack::new(),
@@ -127,8 +127,7 @@ impl ThreadContext {
         }
     }
 
-    pub fn roots(&self) -> Vec<Ref> {
-        // TODO
-        vec![]
+    pub fn roots(&self) -> HashSet<Ref> {
+        self.stack.collect_tracing_roots()
     }
 }

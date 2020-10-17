@@ -3,6 +3,7 @@ use crate::{
     bytecode::{class::Class, method::Method},
     mem::{klass::*, *},
 };
+use std::collections::HashSet;
 
 const DEFAULT_STACK_LEN: usize = 128 * 1024;
 
@@ -19,6 +20,7 @@ pub struct JavaFrame {
     method: *const Method,
     pc: usize,
     max_locals: usize,
+    active_refs: HashSet<Ref>,
 }
 
 impl JavaStack {
@@ -95,6 +97,18 @@ impl JavaStack {
         self.frames.is_empty()
     }
 
+    pub fn append_ref_to_roots(&mut self, reference: Ref) {
+        self.mut_frame().active_refs.insert(reference);
+    }
+
+    pub fn collect_tracing_roots(&self) -> HashSet<Ref> {
+        self.frames
+            .iter()
+            .flat_map(|f| f.active_refs.iter())
+            .map(|r| *r)
+            .collect::<HashSet<_>>()
+    }
+
     pub fn invoke(
         &mut self,
         class: *const Class,
@@ -102,11 +116,11 @@ impl JavaStack {
         pc: usize,
         locals: usize,
     ) -> usize {
-        // -------- drop this after implements native method -----------
         let m = unsafe { &*method };
+        let (_, desc, access_flag) = m.get_name_and_descriptor();
+        let (params, slots, ret) = bytecode::resolve_method_descriptor(desc, access_flag);
+        // -------- drop this after implements native method -----------
         if m.is_native() {
-            let (_, desc, access_flag) = m.get_name_and_descriptor();
-            let (_, slots, ret) = bytecode::resolve_method_descriptor(desc, access_flag);
             let ret: usize = match ret.as_ref() {
                 "D" | "J" => 2,
                 "V" => 0,
@@ -116,7 +130,6 @@ impl JavaStack {
             return pc;
         }
         // -------------------------------------------------------------
-
         let locals = unsafe {
             if self.is_empty() {
                 self.data.as_mut_ptr().add(locals * PTR_SIZE)
@@ -124,6 +137,21 @@ impl JavaStack {
                 self.operands().sub(locals * PTR_SIZE)
             }
         };
+        let mut active_refs = HashSet::new();
+        let mut index = 0usize;
+        for p in params {
+            if p.starts_with("L") || p.starts_with("[") {
+                let reference = unsafe { *locals.add(index * PTR_SIZE).cast::<Slot>() };
+                if reference != NULL {
+                    active_refs.insert(Ref::from_slot(reference));
+                }
+            }
+            if p == "D" || p == "j" {
+                index += 2;
+            } else {
+                index += 1;
+            }
+        }
         let method_ref = unsafe { &*method };
         match method_ref.get_code() {
             None => panic!("AbstractMethod"),
@@ -134,6 +162,7 @@ impl JavaStack {
                 method: method,
                 pc: pc,
                 max_locals: max_locals as usize,
+                active_refs: active_refs,
             }),
         }
         0

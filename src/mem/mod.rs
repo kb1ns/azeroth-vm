@@ -26,6 +26,16 @@ pub type WideSlot = [u8; PTR_SIZE * 2];
 
 pub type Ref = u32;
 
+pub trait ToRef {
+    fn from_slot(slot: Slot) -> Ref;
+}
+
+impl ToRef for Ref {
+    fn from_slot(slot: Slot) -> Ref {
+        Ref::from_le_bytes(slot)
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub enum Value {
     Byte(u8),

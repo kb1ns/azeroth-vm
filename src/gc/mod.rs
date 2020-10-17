@@ -1,4 +1,4 @@
-use crate::mem::*;
+use crate::{mem::*, interpreter::thread::*};
 
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -17,7 +17,9 @@ pub fn init_gc() {
 
 
 pub fn young_gc() {
-    
+    thread::spawn(|| {
+        println!("young gc, collecting tracing roots: {:2x?}", ThreadGroup::collect_roots());
+    });
 }
 
 pub fn old_gc() {
