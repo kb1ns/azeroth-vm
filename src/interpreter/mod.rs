@@ -168,8 +168,8 @@ pub fn execute(context: &mut ThreadContext) {
                 let arrayref = u32::from_le_bytes(context.stack.pop()) as usize;
                 // let current = context.stack.mut_frame();
                 unsafe {
-                    let header = ArrayHeader::from_vm_raw(Heap::ptr(arrayref));
-                    if array_idx >= header.size as usize {
+                    let header = ObjHeader::from_vm_raw(Heap::ptr(arrayref));
+                    if array_idx >= header.size.unwrap() as usize {
                         context
                             .stack
                             .update(context.stack.operands().add(2 * PTR_SIZE));
@@ -179,7 +179,7 @@ pub fn execute(context: &mut ThreadContext) {
                     // FIXME heap -> stack
                     let offset = (&*header.klass).len * array_idx;
                     context.stack.operands().copy_from(
-                        Heap::ptr(arrayref + ARRAY_HEADER_LEN + offset),
+                        Heap::ptr(arrayref + OBJ_HEADER_SIZE + offset),
                         (&*header.klass).len,
                     );
                     context
@@ -236,14 +236,14 @@ pub fn execute(context: &mut ThreadContext) {
                 let array_idx = u32::from_le_bytes(context.stack.pop()) as usize;
                 let arrayref = u32::from_le_bytes(context.stack.pop()) as usize;
                 unsafe {
-                    let header = ArrayHeader::from_vm_raw(Heap::ptr(arrayref));
-                    if array_idx >= header.size as usize {
+                    let header = ObjHeader::from_vm_raw(Heap::ptr(arrayref));
+                    if array_idx >= header.size.unwrap() as usize {
                         context.stack.upward(3);
                         throw_vm_exception(context, "java/lang/ArrayIndexOutOfBoundsException");
                         continue;
                     }
                     let offset = (&*header.klass).len * array_idx;
-                    Heap::ptr(arrayref + ARRAY_HEADER_LEN + offset)
+                    Heap::ptr(arrayref + OBJ_HEADER_SIZE + offset)
                         .copy_from(v.as_ptr(), (&*header.klass).len);
                 }
                 context.pc = context.pc + 1;
@@ -536,7 +536,7 @@ pub fn execute(context: &mut ThreadContext) {
                 // FIXME heap -> stack
                 let (offset, len) = found.unwrap();
                 unsafe {
-                    let target = Heap::ptr(objref + OBJ_HEADER_LEN + *offset);
+                    let target = Heap::ptr(objref + OBJ_HEADER_SIZE + *offset);
                     context.stack.operands().copy_from(target, *len);
                     context.stack.upward(*len / PTR_SIZE);
                 }
@@ -569,7 +569,7 @@ pub fn execute(context: &mut ThreadContext) {
                 // FIXME stack -> heap
                 let (offset, len) = found.unwrap();
                 unsafe {
-                    let target = Heap::ptr(objref + OBJ_HEADER_LEN + *offset);
+                    let target = Heap::ptr(objref + OBJ_HEADER_SIZE + *offset);
                     context.stack.downward(*len / PTR_SIZE);
                     target.copy_from(context.stack.operands(), *len);
                 }
@@ -664,8 +664,8 @@ pub fn execute(context: &mut ThreadContext) {
                     throw_vm_exception(context, "java/lang/NullPointerException");
                     return;
                 }
-                let array = ArrayHeader::from_vm_raw(Heap::ptr(u32::from_le_bytes(addr) as usize));
-                context.stack.push(&array.size.to_le_bytes());
+                let array = ObjHeader::from_vm_raw(Heap::ptr(u32::from_le_bytes(addr) as usize));
+                context.stack.push(&array.size.unwrap().to_le_bytes());
                 context.pc = context.pc + 1;
             }
             // athrow
@@ -693,7 +693,7 @@ fn invoke_virtual(context: &mut ThreadContext) {
         throw_vm_exception(context, "java/lang/NullPointerException");
         return;
     }
-    let obj = ObjectHeader::from_vm_raw(Heap::ptr(u32::from_le_bytes(addr) as usize));
+    let obj = ObjHeader::from_vm_raw(Heap::ptr(u32::from_le_bytes(addr) as usize));
     let klass = unsafe { obj.klass.as_ref() }.expect("obj_klass_pointer_null");
     if let Some(method) = klass.get_method_in_vtable(m, t) {
         context.pc = context
@@ -725,7 +725,7 @@ fn invoke_interface(context: &mut ThreadContext) {
         return;
     }
     let addr = u32::from_le_bytes(addr);
-    let obj = ObjectHeader::from_vm_raw(Heap::ptr(addr as usize));
+    let obj = ObjHeader::from_vm_raw(Heap::ptr(addr as usize));
     let klass = unsafe { obj.klass.as_ref() }.expect("obj_klass_pointer_null");
     if let Some(method) = klass.get_method_in_itable(c, m, t) {
         context.pc = context
@@ -818,7 +818,7 @@ fn handle_exception(context: &mut ThreadContext) {
         return;
     }
     let error_ref = Ref::from_le_bytes(*context.stack.top());
-    let header = ObjectHeader::from_vm_raw(Heap::ptr(error_ref as usize));
+    let header = ObjHeader::from_vm_raw(Heap::ptr(error_ref as usize));
     let error_klass = unsafe { &*header.klass };
     match context.stack.match_exception_table(context.pc, error_klass) {
         Some(pc) => {

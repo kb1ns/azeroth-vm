@@ -1,6 +1,7 @@
 use crate::jvm_heap;
+use crate::gc;
 use crate::mem::{
-    klass::{ArrayHeader, Klass, ObjectHeader, ARRAY_HEADER_LEN, OBJ_HEADER_LEN},
+    klass::{ObjHeader, Klass, OBJ_HEADER_SIZE},
     *,
 };
 use std::sync::{Arc, RwLock};
@@ -9,9 +10,10 @@ pub struct Heap {
     _data: Vec<u8>,
     pub base: *mut u8,
     pub oldgen: Arc<RwLock<Region>>,
-    pub s0: Arc<RwLock<Region>>,
-    pub s1: Arc<RwLock<Region>>,
+    pub from: Arc<RwLock<Region>>,
+    pub to: Arc<RwLock<Region>>,
     pub eden: Arc<RwLock<Region>>,
+    pub young_capacity: u32,
 }
 
 pub struct Region {
@@ -31,23 +33,59 @@ impl Region {
 impl Heap {
     pub fn init(old_size: u32, survivor_size: u32, eden_size: u32) {
         let mut data = Vec::<u8>::with_capacity(
-            PTR_SIZE + (old_size + eden_size + survivor_size * 2) as usize,
+            PTR_SIZE + (old_size + eden_size + survivor_size) as usize,
         );
         let ptr = data.as_mut_ptr();
-        let eden = Region::new(PTR_SIZE as u32, eden_size);
-        let s0 = Region::new(eden_size, survivor_size);
-        let s1 = Region::new(eden_size + survivor_size, survivor_size);
-        let oldgen = Region::new(eden_size + 2 * survivor_size, old_size);
+        let mut offset = PTR_SIZE as u32;
+        let eden = Region::new(offset, eden_size);
+        offset += eden_size;
+        let from = Region::new(offset, survivor_size);
+        offset += survivor_size;
+        let to = Region::new(offset, survivor_size);
+        offset += survivor_size;
+        let oldgen = Region::new(offset, old_size);
         unsafe {
             HEAP.replace(Heap {
                 _data: data,
                 base: ptr,
-                s0: Arc::new(RwLock::new(s0)),
-                s1: Arc::new(RwLock::new(s1)),
+                from: Arc::new(RwLock::new(from)),
+                to: Arc::new(RwLock::new(to)),
                 eden: Arc::new(RwLock::new(eden)),
                 oldgen: Arc::new(RwLock::new(oldgen)),
+                young_capacity: offset,
             });
         }
+    }
+
+    pub fn is_young_object(addr: Ref) -> bool {
+        addr < jvm_heap!().young_capacity
+    }
+
+    pub fn copy_object_to_region(addr: Ref, region: &mut Region) -> Option<Ref> {
+        let native_ptr = Heap::ptr(addr as usize);
+        let obj = ObjHeader::from_vm_raw(native_ptr);
+        let instance_len = match obj.is_instance() {
+            true => unsafe {&*obj.klass}.len as usize,
+            false => obj.size.unwrap() as usize * unsafe {&*obj.klass}.len,
+        } + OBJ_HEADER_SIZE;
+        if region.offset + instance_len as u32 >= region.limit {
+            return None;
+        }
+        let free = Heap::ptr(region.offset as usize);
+        unsafe { free.copy_from(native_ptr, instance_len) };
+        let addr = region.offset;
+        region.offset = addr + instance_len as u32;
+        Some(addr)
+    }
+
+    pub fn swap_from_and_to() {
+        let mut from = jvm_heap!().from.write().unwrap();
+        let mut to = jvm_heap!().to.write().unwrap();
+        let (offset, limit) = (from.offset, from.limit);
+        from.offset = to.offset;
+        from.limit = to.limit;
+        to.offset = offset;
+        to.limit = limit;
     }
 
     pub fn allocate_object(klass: &Arc<Klass>) -> Ref {
@@ -68,32 +106,32 @@ impl Heap {
 
     fn allocate_object_in_region(klass: &Arc<Klass>, region: &Arc<RwLock<Region>>) -> Option<Ref> {
         let mut region = region.write().unwrap();
-        let instance_len = OBJ_HEADER_LEN + klass.len;
+        let instance_len = OBJ_HEADER_SIZE + klass.len;
         if region.offset + instance_len as u32 >= region.limit {
             return None;
         }
-        let obj_header = ObjectHeader::new(Arc::as_ptr(klass));
+        let obj_header = ObjHeader::new_instance(Arc::as_ptr(klass));
         let obj_ptr = obj_header.into_vm_raw().as_ptr();
         let free = Heap::ptr(region.offset as usize);
-        unsafe { free.copy_from(obj_ptr, OBJ_HEADER_LEN) };
+        unsafe { free.copy_from(obj_ptr, OBJ_HEADER_SIZE) };
         let addr = region.offset;
         region.offset = addr + instance_len as u32;
         Some(addr)
     }
 
     pub fn allocate_array(klass: &Arc<Klass>, size: u32) -> Ref {
-        let array_len = ARRAY_HEADER_LEN + klass.len * size as usize;
+        let array_len = OBJ_HEADER_SIZE + klass.len * size as usize;
         let mut eden = jvm_heap!().eden.write().unwrap();
         // ensure enough space to allocate object
         if eden.offset + array_len as u32 >= eden.limit {
             // TODO gc
             panic!("OutOfMemoryError");
         }
-        let array_header = ArrayHeader::new(Arc::as_ptr(klass), size);
+        let array_header = ObjHeader::new_array(Arc::as_ptr(klass), size);
         unsafe {
             let eden_ptr = jvm_heap!().base.add(eden.offset as usize);
             let array_header_ptr = array_header.into_vm_raw().as_ptr();
-            eden_ptr.copy_from(array_header_ptr, ARRAY_HEADER_LEN);
+            eden_ptr.copy_from(array_header_ptr, OBJ_HEADER_SIZE);
             let addr = eden.offset;
             eden.offset = eden.offset + array_len as u32;
             addr
@@ -142,12 +180,12 @@ mod test {
         assert_eq!(super::PTR_SIZE as u32, obj0);
         let obj1 = super::Heap::allocate_object(&klass);
         assert_eq!(
-            super::OBJ_HEADER_LEN + klass.len + obj0 as usize,
+            super::OBJ_HEADER_SIZE + klass.len + obj0 as usize,
             obj1 as usize
         );
 
         let obj0_ptr = unsafe { jvm_heap!().base.add(obj0 as usize) };
-        let obj_header: super::ObjectHeader = super::klass::ObjectHeader::from_vm_raw(obj0_ptr);
+        let obj_header: super::ObjHeader = super::klass::ObjHeader::from_vm_raw(obj0_ptr);
         let java_lang_object_klass = unsafe { &*obj_header.klass };
         assert_eq!("java/lang/Object", java_lang_object_klass.name);
     }

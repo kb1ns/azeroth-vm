@@ -22,67 +22,47 @@ pub struct Klass {
 }
 
 #[derive(Clone)]
-pub struct ObjectHeader {
-    pub mark: Ref,
+pub struct ObjHeader {
+    pub mark: u32,
+    pub size: Option<u32>,
     pub klass: *const Klass,
 }
 
-#[derive(Clone)]
-pub struct ArrayHeader {
-    pub mark: Ref,
-    pub size: u32,
-    pub klass: *const Klass,
-}
+pub const OBJ_HEADER_SIZE: usize = size_of::<ObjHeader>();
 
-pub const OBJ_HEADER_LEN: usize = size_of::<ObjectHeader>();
+pub type ObjHeaderRaw = [u8; OBJ_HEADER_SIZE];
 
-pub const ARRAY_HEADER_LEN: usize = size_of::<ArrayHeader>();
+impl ObjHeader {
+    pub fn is_instance(&self) -> bool {
+        self.size.is_none()
+    }
 
-pub type ObjectHeaderRaw = [u8; OBJ_HEADER_LEN];
-
-pub type ArrayHeaderRaw = [u8; ARRAY_HEADER_LEN];
-
-impl ObjectHeader {
-    pub fn new(klass: *const Klass) -> Self {
-        ObjectHeader {
+    pub fn new_instance(klass: *const Klass) -> Self {
+        Self {
             mark: 0,
+            size: None,
             klass: klass,
         }
     }
 
-    pub fn into_vm_raw(self) -> ObjectHeaderRaw {
-        unsafe { transmute::<Self, ObjectHeaderRaw>(self) }
+    pub fn new_array(klass: *const Klass, size: u32) -> Self {
+        Self {
+            mark: 0,
+            size: Some(size),
+            klass: klass,
+        }
+    }
+
+    pub fn into_vm_raw(self) -> ObjHeaderRaw {
+        unsafe { transmute::<Self, ObjHeaderRaw>(self) }
     }
 
     pub fn from_vm_raw(ptr: *const u8) -> Self {
-        let mut obj_header_raw = [0u8; OBJ_HEADER_LEN];
+        let mut obj_header_raw = [0u8; OBJ_HEADER_SIZE];
         let obj_header_ptr = obj_header_raw.as_mut_ptr();
         unsafe {
-            obj_header_ptr.copy_from(ptr, OBJ_HEADER_LEN);
-            transmute::<ObjectHeaderRaw, Self>(obj_header_raw)
-        }
-    }
-}
-
-impl ArrayHeader {
-    pub fn new(klass: *const Klass, size: u32) -> Self {
-        ArrayHeader {
-            mark: 0,
-            size: size,
-            klass: klass,
-        }
-    }
-
-    pub fn into_vm_raw(self) -> ArrayHeaderRaw {
-        unsafe { transmute::<Self, ArrayHeaderRaw>(self) }
-    }
-
-    pub fn from_vm_raw(ptr: *const u8) -> Self {
-        let mut array_header_raw = [0u8; ARRAY_HEADER_LEN];
-        let array_header_ptr = array_header_raw.as_mut_ptr();
-        unsafe {
-            array_header_ptr.copy_from(ptr, ARRAY_HEADER_LEN);
-            transmute::<ArrayHeaderRaw, Self>(array_header_raw)
+            obj_header_ptr.copy_from(ptr, OBJ_HEADER_SIZE);
+            transmute::<ObjHeaderRaw, Self>(obj_header_raw)
         }
     }
 }
