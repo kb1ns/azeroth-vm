@@ -1,7 +1,7 @@
 use crate::interpreter;
 use crate::mem::{metaspace::*, stack::*, *};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 use std::sync::atomic::AtomicU32;
@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 pub struct ThreadGroup {
     threads:
-        Arc<Mutex<BTreeMap<u32, (Rc<RefCell<ThreadContext>>, Sender<u32>, Receiver<HashSet<Ref>>)>>>,
+        Arc<Mutex<BTreeMap<u32, (Rc<RefCell<ThreadContext>>, Sender<u32>, Receiver<Vec<*mut Ref>>)>>>,
 }
 
 static mut THREADS: Option<ThreadGroup> = None;
@@ -39,13 +39,13 @@ impl ThreadGroup {
         }
     }
 
-    pub fn new_thread(class_name: &str, method_name: &str, method_descriptor: &str, init: bool) {
+    pub fn new_thread(classloader: Ref, class_name: &str, method_name: &str, method_descriptor: &str, init: bool) {
         let context = {
             let mut threads = jvm_threads!().threads.lock().unwrap();
             let id = *threads.deref().keys().last().unwrap_or(&0);
             let (sig_tx, sig_rx) = channel();
             let (col_tx, col_rx) = channel();
-            let thread = ThreadContext::new(id, sig_rx, col_tx);
+            let thread = ThreadContext::new(id, classloader, sig_rx, col_tx);
             threads
                 .deref_mut()
                 .insert(id, (Rc::new(RefCell::new(thread)), sig_tx, col_rx));
@@ -80,7 +80,7 @@ impl ThreadGroup {
         threads.deref_mut().remove(&id);
     }
 
-    pub fn collect_roots() -> HashSet<Ref> {
+    pub fn collect_roots() -> Vec<*mut Ref> {
         let threads = jvm_threads!().threads.lock().unwrap();
         threads
             .deref()
@@ -90,7 +90,7 @@ impl ThreadGroup {
                 t.2.recv().unwrap()
             })
             .flatten()
-            .collect::<HashSet<_>>()
+            .collect::<Vec<_>>()
     }
 
     pub fn notify_all() {
@@ -105,19 +105,21 @@ impl ThreadGroup {
 pub struct ThreadContext {
     pub pc: usize,
     pub stack: JavaStack,
+    pub classloader: Ref,
     pub exception_pending: bool,
     pub throwable_initialized: bool,
     pub status: AtomicU32,
     pub id: u32,
     pub rx: Receiver<u32>,
-    pub tx: Sender<HashSet<Ref>>,
+    pub tx: Sender<Vec<*mut Ref>>,
 }
 
 impl ThreadContext {
-    fn new(id: u32, rx: Receiver<u32>, tx: Sender<HashSet<Ref>>) -> Self {
+    fn new(id: u32, classloader: Ref, rx: Receiver<u32>, tx: Sender<Vec<*mut Ref>>) -> Self {
         Self {
             pc: 0,
             stack: JavaStack::new(),
+            classloader: classloader,
             exception_pending: false,
             throwable_initialized: false,
             status: AtomicU32::new(THREAD_RUNNING),
@@ -127,7 +129,7 @@ impl ThreadContext {
         }
     }
 
-    pub fn roots(&self) -> HashSet<Ref> {
+    pub fn roots(&self) -> Vec<*mut Ref> {
         self.stack.collect_tracing_roots()
     }
 }

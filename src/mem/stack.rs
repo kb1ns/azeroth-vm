@@ -3,7 +3,6 @@ use crate::{
     bytecode::{class::Class, method::Method},
     mem::{klass::*, *},
 };
-use std::collections::HashSet;
 
 const DEFAULT_STACK_LEN: usize = 128 * 1024;
 
@@ -20,7 +19,7 @@ pub struct JavaFrame {
     method: *const Method,
     pc: usize,
     max_locals: usize,
-    active_refs: HashSet<Ref>,
+    active_refs: Vec<*mut Ref>,
 }
 
 impl JavaStack {
@@ -97,16 +96,16 @@ impl JavaStack {
         self.frames.is_empty()
     }
 
-    pub fn append_ref_to_roots(&mut self, reference: Ref) {
-        self.mut_frame().active_refs.insert(reference);
+    pub fn append_ref_to_roots(&mut self, ref_ptr: *mut Ref) {
+        self.mut_frame().active_refs.push(ref_ptr);
     }
 
-    pub fn collect_tracing_roots(&self) -> HashSet<Ref> {
+    pub fn collect_tracing_roots(&self) -> Vec<*mut Ref> {
         self.frames
             .iter()
             .flat_map(|f| f.active_refs.iter())
-            .map(|r| *r)
-            .collect::<HashSet<_>>()
+            .map(|p| *p)
+            .collect::<Vec<_>>()
     }
 
     pub fn invoke(
@@ -137,16 +136,16 @@ impl JavaStack {
                 self.operands().sub(locals * PTR_SIZE)
             }
         };
-        let mut active_refs = HashSet::new();
+        let mut active_refs = Vec::new();
         let mut index = 0usize;
         for p in params {
             if p.starts_with("L") || p.starts_with("[") {
-                let reference = unsafe { *locals.add(index * PTR_SIZE).cast::<Slot>() };
-                if reference != NULL {
-                    active_refs.insert(Ref::from_slot(reference));
+                let reference = unsafe { locals.add(index * PTR_SIZE).cast::<Ref>() };
+                if unsafe { *reference != 0 } {
+                    active_refs.push(reference);
                 }
             }
-            if p == "D" || p == "j" {
+            if p == "D" || p == "J" {
                 index += 2;
             } else {
                 index += 1;
@@ -205,7 +204,7 @@ impl JavaStack {
             if pc >= handler.start_pc as usize && pc < handler.end_pc as usize {
                 match &handler.catch_type {
                     Some(exception_type) => {
-                        if is_subclass(klass, &exception_type) {
+                        if klass.is_superclass(&exception_type) {
                             return Some(handler.handler_pc as usize);
                         }
                     }

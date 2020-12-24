@@ -1,8 +1,12 @@
 // #![feature(weak_into_raw)]
 use azerothvm::{
+    gc,
     interpreter::thread::ThreadGroup,
-    mem::{heap::Heap, metaspace::ClassArena, strings::Strings},
-    gc
+    mem::{
+        heap::Heap,
+        metaspace::{ClassArena, *},
+        strings::Strings,
+    },
 };
 
 fn main() {
@@ -72,5 +76,11 @@ fn start_vm(class_name: &str, user_classpath: &str, java_home: &str) {
     Strings::init();
     ThreadGroup::init();
     gc::init();
-    ThreadGroup::new_thread(class_name, "main", "([Ljava/lang/String;)V", true);
+    ThreadGroup::new_thread(
+        ROOT_CLASSLOADER,
+        class_name,
+        "main",
+        "([Ljava/lang/String;)V",
+        true,
+    );
 }

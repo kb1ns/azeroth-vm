@@ -41,6 +41,12 @@ impl Strings {
         let (klass, _) =
             ClassArena::load_class("java/lang/String", context).expect("jre_not_found");
         let obj = Heap::allocate_object_directly(&klass);
+        // let bytearray = Heap::allocate_bytes_directly(constant);
+        // let (content_field, len) = klass.layout.get(&("java/lang/String", "value", "[B")).unwrap();
+        // unsafe {
+        //     let target = Heap::ptr(obj as usize + OBJ_HEADER_SIZE + *content_field);
+        //     target.copy_from(bytearray, *len);
+        // }
         constants.insert(constant.to_owned(), obj);
         obj
     }

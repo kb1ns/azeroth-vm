@@ -10,11 +10,13 @@ pub struct ClassArena {
     mutex: Mutex<u32>,
 }
 
-pub enum Classloader {
-    ROOT,
-    EXT,
-    APP(Ref),
-}
+// pub enum Classloader {
+//     ROOT,
+//     EXT,
+//     APP(Ref),
+// }
+
+pub const ROOT_CLASSLOADER: Ref = 0;
 
 static mut CLASSES: Option<Arc<ClassArena>> = None;
 
@@ -109,8 +111,7 @@ impl ClassArena {
                     interfaces.push(Self::load_class(interface, context)?.0);
                 }
                 initialize_class(&class, context);
-                // TODO classloader
-                let klass = Arc::new(Klass::new(class, Classloader::ROOT, superclass, interfaces));
+                let klass = Arc::new(Klass::new(class, ROOT_CLASSLOADER, superclass, interfaces));
                 class_arena!().classes.insert(class_name, klass.clone());
                 Ok((klass, false))
             }

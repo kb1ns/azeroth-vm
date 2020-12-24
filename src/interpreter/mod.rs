@@ -8,6 +8,7 @@ use crate::{
     mem::{heap::Heap, klass::*, metaspace::*, strings::Strings, *},
 };
 use std::sync::Arc;
+use std::thread::Thread;
 
 use log::trace;
 
@@ -102,8 +103,7 @@ pub fn execute(context: &mut ThreadContext) {
                             _ => panic!(""),
                         }
                     }
-                    // TODO
-                    _ => panic!(""),
+                    _ => unreachable!(),
                 };
                 context.stack.push(&v);
                 context.pc = context.pc + 2;
@@ -533,7 +533,6 @@ pub fn execute(context: &mut ThreadContext) {
                     throw_vm_exception(context, "java/lang/NoSuchFieldError");
                     continue;
                 }
-                // FIXME heap -> stack
                 let (offset, len) = found.unwrap();
                 unsafe {
                     let target = Heap::ptr(objref + OBJ_HEADER_SIZE + *offset);
@@ -583,6 +582,28 @@ pub fn execute(context: &mut ThreadContext) {
             0xb8 => invoke_static(context),
             // invokeinterface
             0xb9 => invoke_interface(context),
+            // invokeasync
+            0xd3 => {
+                let method_idx = (context.stack.code_at(context.pc + 1) as U2) << 8
+                    | context.stack.code_at(context.pc + 2) as U2;
+                let class =
+                    unsafe { context.stack.class_ptr().as_ref() }.expect("class_pointer_null");
+                let (c, (m, t)) = class.constant_pool.get_javaref(method_idx);
+                let found = ClassArena::load_class(c, context);
+                if found.is_err() {
+                    throw_vm_exception(context, "java/lang/ClassNotFoundException");
+                    continue;
+                }
+                let (klass, initialized) = found.unwrap();
+                if !initialized {
+                    continue;
+                }
+                let ctx_classloader = context.classloader;
+                std::thread::spawn(move || {
+                    thread::ThreadGroup::new_thread(ctx_classloader, c, m, t, true);
+                });
+                context.pc = context.pc + 3;
+            }
             // new
             0xbb => {
                 let class_index = (context.stack.code_at(context.pc + 1) as U2) << 8
@@ -625,6 +646,11 @@ pub fn execute(context: &mut ThreadContext) {
                     ClassArena::load_class(atype, context).expect("primitive_types_array");
                 let size = u32::from_le_bytes(context.stack.pop());
                 let array = Heap::allocate_array(&klass, size);
+                if array.is_none() {
+                    gc::gc();
+                    continue;
+                }
+                let array = array.unwrap();
                 let v = array.to_le_bytes();
                 context.stack.push(&v);
                 trace!("allocate array {}, addr:{}, size:{}", atype, array, size);
@@ -647,6 +673,11 @@ pub fn execute(context: &mut ThreadContext) {
                 }
                 let size = u32::from_le_bytes(context.stack.pop());
                 let array = Heap::allocate_array(&klass, size);
+                if array.is_none() {
+                    gc::gc();
+                    continue;
+                }
+                let array = array.unwrap();
                 let v = array.to_le_bytes();
                 context.stack.push(&v);
                 trace!(
@@ -782,7 +813,6 @@ fn invoke_special(context: &mut ThreadContext) {
     if !initialized {
         return;
     }
-    // TODO subclass check
     let method = klass.bytecode.as_ref().unwrap().get_method(m, t);
     if method.is_none() {
         throw_vm_exception(context, "java/lang/NoSuchMethodError");
@@ -802,16 +832,13 @@ fn throw_vm_exception(context: &mut ThreadContext, error_class: &str) {
         return;
     }
     let exception = Heap::allocate_object(&error).to_le_bytes();
-    // FIXME stack resize?
     context.stack.push(&exception);
     context.exception_pending = true;
     context.throwable_initialized = false;
 }
 
 fn handle_exception(context: &mut ThreadContext) {
-    // FIXME args of throwable <init>
     if !context.throwable_initialized {
-        // TODO init throwable
         context.throwable_initialized = true;
     }
     if context.stack.is_empty() {
